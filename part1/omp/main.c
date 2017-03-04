@@ -1,11 +1,24 @@
 #include "projet.h"
+#include <omp.h>
+
+#define OMP_MAX_PROF 1
 
 /* 2017-02-23 : version 1.0 */
 
 unsigned long long int node_searched = 0;
 
-void evaluate(tree_t * T, result_t *result)
+/*void evaluate_omp (tree_t *T, result_t *result, int prof) {
+#pragma omp task
+{ // OMP BLOCK
+if(prof < OMP_PROF_MAX(omp_get_num_threads()))
+evaluate_omp (T, result, prof+1);
+evaluate (T, result);
+} // OMP BLOCK
+}*/
+
+void evaluate(tree_t * T, result_t *result, int prof)
 {
+#pragma omp atomic
     node_searched++;
 
     move_t moves[MAX_MOVES];
@@ -14,6 +27,7 @@ void evaluate(tree_t * T, result_t *result)
     result->score = -MAX_SCORE - 1;
     result->pv_length = 0;
 
+    //printf(">>>>>>>>>>>>>>>>>>>>>>>><<%f\n",result->score);
     if (test_draw_or_victory(T, result))
         return;
 
@@ -40,31 +54,53 @@ void evaluate(tree_t * T, result_t *result)
         sort_moves(T, n_moves, moves);
 
     /* évalue récursivement les positions accessibles à partir d'ici */
-    for (int i = 0; i < n_moves; i++) {
-        tree_t child;
-        result_t child_result;
+    tree_t child[n_moves];
+    result_t child_result[n_moves];
+    if(prof < OMP_MAX_PROF){
+#pragma omp parallel for
+        for (int i = 0; i < n_moves; i++) {
+            play_move(T, moves[i], &child[i]);
 
-        play_move(T, moves[i], &child);
+            evaluate(&child[i], &child_result[i], prof+1);
 
-        evaluate(&child, &child_result);
+            int child_score = -child_result[i].score;
 
-        int child_score = -child_result.score;
+#pragma critical CHILD
+            { // BLOCK OMP
+                if (child_score > result->score) {
+                    result->score = child_score;
+                    result->best_move = moves[i];
+                    result->pv_length = child_result[i].pv_length + 1;
+                    for(int j = 0; j < child_result[i].pv_length; j++)
+                        result->PV[j+1] = child_result[i].PV[j];
+                    result->PV[0] = moves[i];
+                }
 
-        if (child_score > result->score) {
-            result->score = child_score;
-            result->best_move = moves[i];
-            result->pv_length = child_result.pv_length + 1;
-            for(int j = 0; j < child_result.pv_length; j++)
-                result->PV[j+1] = child_result.PV[j];
-            result->PV[0] = moves[i];
+                // TODO section critique
+                T->alpha = MAX(T->alpha, child_score);
+            } // BLOCK OMP
+        }
+    } else {
+        for (int i = 0; i < n_moves; i++) {
+            play_move(T, moves[i], &child[i]);
+
+            evaluate(&child[i], &child_result[i], prof);
+
+            int child_score = -child_result[i].score;
+
+            if (child_score > result->score) {
+                result->score = child_score;
+                result->best_move = moves[i];
+                result->pv_length = child_result[i].pv_length + 1;
+                for(int j = 0; j < child_result[i].pv_length; j++)
+                    result->PV[j+1] = child_result[i].PV[j];
+                result->PV[0] = moves[i];
+            }
+
+            T->alpha = MAX(T->alpha, child_score);
         }
 
-        if (ALPHA_BETA_PRUNING && child_score >= T->beta)
-            break;    
-
-        T->alpha = MAX(T->alpha, child_score);
     }
-
     if (TRANSPOSITION_TABLE)
         tt_store(T, result);
 }
@@ -79,7 +115,10 @@ void decide(tree_t * T, result_t *result)
         T->beta = MAX_SCORE + 1;
 
         printf("=====================================\n");
-        evaluate(T, result);
+        //#pragma omp parallel firstprivate(T,result)
+        //#pragma omp single
+        evaluate(T, result, 0);
+        //#pragma omp barrier
 
         printf("depth: %d / score: %.2f / best_move : ", T->depth, 0.01 * result->score);
         print_pv(T, result);

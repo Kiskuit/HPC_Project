@@ -27,7 +27,12 @@
 *.i*86
 *.x86_64
 *.hex
+decide
 
 # Debug files
 *.dSYM/
 *.su
+
+# Vi files
+*~
+*.swp
