@@ -1,0 +1,16 @@
+#### Fait : 
+-J'ai transformé le if avec la répétion du code dans les deux membres
+pour utiliser la fonction.
+
+### todo :
+-Voir si il ne serait pas encore mieux (et si ça marche en O3) de mettre
+uniquement les pragmas dans les conditions :
+    if (cond){
+#pragma ... for ...
+    }
+    for (i...)
+
+-Trouver un moyen de ne pas avoir a faire le pragma omp critical dans 
+tous les cas, pour limiter le temps qu'on passe à gérer des sémaphores.
+--> (Est-ce qu'il faut pas que tous ces passages soient en section critique,
+meme si pas dans le pragma parallel for)
