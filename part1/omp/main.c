@@ -1,20 +1,14 @@
 #include "projet.h"
 #include <omp.h>
 
-#define OMP_MAX_PROF 1
+#define OMP_MAX_PROF 2
 
 /* 2017-02-23 : version 1.0 */
 
 unsigned long long int node_searched = 0;
 
-/*void evaluate_omp (tree_t *T, result_t *result, int prof) {
-#pragma omp task
-{ // OMP BLOCK
-if(prof < OMP_PROF_MAX(omp_get_num_threads()))
-evaluate_omp (T, result, prof+1);
-evaluate (T, result);
-} // OMP BLOCK
-}*/
+void fct_for(tree_t *T, move_t m, tree_t *child, result_t *child_res,
+        int prof, result_t *cur_res);
 
 void evaluate(tree_t * T, result_t *result, int prof)
 {
@@ -27,7 +21,6 @@ void evaluate(tree_t * T, result_t *result, int prof)
     result->score = -MAX_SCORE - 1;
     result->pv_length = 0;
 
-    //printf(">>>>>>>>>>>>>>>>>>>>>>>><<%f\n",result->score);
     if (test_draw_or_victory(T, result))
         return;
 
@@ -56,6 +49,20 @@ void evaluate(tree_t * T, result_t *result, int prof)
     /* évalue récursivement les positions accessibles à partir d'ici */
     tree_t child[n_moves];
     result_t child_result[n_moves];
+    if(prof < OMP_MAX_PROF) {
+#pragma omp parallel for
+        for (int i=0 ; i<n_moves ; i++) {
+            fct_for(T, moves[i], &child[i], &child_result[i],
+                    prof, result);
+        }
+    }
+    if (prof >= OMP_MAX_PROF) { 
+        for (int i=0 ; i<n_moves ; i++) {
+            fct_for(T, moves[i], &child[i], &child_result[i],
+                    prof, result);
+        }
+    }
+    /*
     if(prof < OMP_MAX_PROF){
 #pragma omp parallel for
         for (int i = 0; i < n_moves; i++) {
@@ -66,7 +73,7 @@ void evaluate(tree_t * T, result_t *result, int prof)
             int child_score = -child_result[i].score;
 
 #pragma critical CHILD
-            { // BLOCK OMP
+            { // BLOCK OMP : critical
                 if (child_score > result->score) {
                     result->score = child_score;
                     result->best_move = moves[i];
@@ -78,7 +85,7 @@ void evaluate(tree_t * T, result_t *result, int prof)
 
                 // TODO section critique
                 T->alpha = MAX(T->alpha, child_score);
-            } // BLOCK OMP
+            } // BLOCK OMP : critical
         }
     } else {
         for (int i = 0; i < n_moves; i++) {
@@ -101,10 +108,33 @@ void evaluate(tree_t * T, result_t *result, int prof)
         }
 
     }
+    */
     if (TRANSPOSITION_TABLE)
         tt_store(T, result);
 }
 
+void fct_for(tree_t *T, move_t m, tree_t *child, result_t *child_res,
+        int prof, result_t *cur_res) {
+    play_move(T, m, child);
+
+    evaluate(child, child_res, prof);
+
+    int child_score = -child_res->score;
+
+#pragma omp critical(CHILD)
+    { // BLOCK OMP : critical
+        if (child_score > cur_res->score) {
+            cur_res->score = child_score;
+            cur_res->best_move = m;
+            cur_res->pv_length = child_res->pv_length+1;
+            for (int j=0 ; j<child_res->pv_length ; j++)
+                cur_res->PV[j+1] = child_res->PV[j];
+            cur_res->PV[0] = m;
+        }
+
+        T->alpha = MAX(T->alpha, child_score);
+    } // BLOCK OMP : critical
+}
 
 void decide(tree_t * T, result_t *result)
 {
