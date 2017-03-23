@@ -49,17 +49,26 @@ void pre_evaluate(/* TODO */) {
     parentTrees = T;
     parentResults = result;
     parentMoves = moves;
+    /* Tasks from a given parent are all consecutives in taskTrees and taskResults
+     * parentID is an array of the same size as taskParents. Elements are indexes
+     * at which the parent changes.
+     * EG : 2 parents P0 & P1. P0 has 3 childs, P1 2.
+     *      --> parentID = {3,5}
+     */
     *parentID=4;
     while (nb_tasks < 10*nb_proc) {
         // TODO take into account case where not enough tasks
-        // Go deeper
         int sum = 0, j = 0;
+        taskMoves = NULL; // For later realloc
+        int *taskID;
+        if ( (taskID = malloc(nb_tasks*sizeof(int))) == NULL) {
+            fprintf(stderr, "malloc error in pre_evaluate()\n");
+            exit(1);
+        }
         for (int i = 0 ; i<nb_tasks ; i++) {
-            // TODO change T to parent somehow
-            //      and moves to parentMoves
             if (i >= parentID[j]) 
                 j++;
-            play_move(parentTrees[j], moves[i], &taskTree[i]);
+            play_move(&parentTrees[j], parentMoves[i], &taskTree[i]);
 
             taskResults[i].score = -MAX_SCORE - 1;
             taskResults[i].pv_length = 0;
@@ -67,14 +76,43 @@ void pre_evaluate(/* TODO */) {
                 // What are we doing here?
                 continue;
             }
+            compute_attack_squares(&taskTrees[i]);
             if (taskTrees[i].depth == 0) {
-                taskResults[i].score = (2*taskTree[i].side - 1)*heuristic_evaluation(&taskTree[i]);
+                taskResults[i].score = 
+                    (2*taskTree[i].side - 1)*heuristic_evaluation(&taskTree[i]);
                 // Same as above
                 continue;
             }
-            n_moves = generate_legal_moves(&taskTrees[i], /*TODO*/);
-            nb_tasks += n_moves;
+            n_moves = generate_legal_moves(&taskTrees[i], moves);
+            // VOODOO MAGIC
+            taskID[i] = n_moves + (i==0?0:taskID[i-1]);
+            if (n_moves  == 0) {
+                taskResults[i].score = check(&taskTrees[i]) ?
+                    -MAX_SCORE : CERTAIN_DRAW;
+                // Same as above
+                continue;
+            }
+            else {
+                // Extend size of taskMoves array
+                sum += n_moves;
+                if ( (taskMoves = realloc(taskMoves,sum*sizeof(int))) == NULL) {
+                    fprintf(stderr, "realloc error in pre_eval()\n");
+                    exit(1);
+                }
+                // Copy moves into new array
+                memcpy(taskMoves+sum-n_moves, moves, n_moves*sizeof(int));
+            }
         }
+        // Preparation for next cycle of while
+        // TODO Do we need to free here?
+        // I think we want to keep the tree in RAM so we can access it
+        // but so far, it's lost...
+        // --> create a tree struct???
+        parentTrees = taskTrees;
+        parentResults = taskResults;
+        parentMoves = taskMoves;
+        nb_tasks = sum;
+        // TODO taskID
     }
     // Do parallel thingy
     /* 
