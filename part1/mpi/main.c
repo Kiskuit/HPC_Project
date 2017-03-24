@@ -19,30 +19,57 @@ unsigned long long int node_searched = 0;
  *          -> last message with special TAG to exit and call MPI_Finalize()
  */
 
+struct recTree_t {
+    int id;
+    int parentId;
+    int nbChild;
+    int *childId;
+    tree_t *tree;
+    result_t *result;
+};
+typedef struct recTree_t recTree_t;
+
 void pre_evaluate(/* TODO */) {
     // TODO handle node_searched increment in this function
+
+    /* Tree handling */
+    recTree_t *preEvalTrees;
+    int nbElts = 1;
+
     int nb_tasks, n_moves;
     move_t moves[MAX_MOVES];
 
     tree_t *taskTrees, *parentTrees;
     result_t *taskResults, *parentResults;
 
+    if ( (preEvalTrees=malloc(sizeof(recTree_t))) == NULL) {
+        fprintf(stderr,"malloc error in pre_evaluate()\n");
+        exit(1);
+    }
+    preEvalTrees[0].id = 0;
+    preEvalTrees[0].parentId = -1;
+    // TODO determine if we need the childID thingy
+    preEvalTrees[0].tree = T;
+    preEvalTrees[0].result = result;
+
+    /* Preparation phase */
     result->score = -MAX_SCORE -1;
     result->pv_length = 0;
     if (test_draw_or_victory(T, result))
         return;
-
-    if (T->depth == 0) {
-        result->score = (2*T->side -1)*heuristic_evaluation(T);
-        return;
-    }
-
+    compute_attack_squares(T);
     nb_tasks = n_moves = generate_legal_moves(T, moves);
+
+    /* TODO TITLE */
     if ( (taskTrees=calloc(nb_tasks, sizeof(tree_t)))==NULL) {
         fprintf(stderr,"calloc error in pre_evaluate()\n");
         exit(1);
     }
     if ( (taskResults=calloc(nb_tasks, sizeof(tree_t))) == NULL) {
+        fprintf(stderr,"calloc error in pre_evaluate()\n");
+        exit(1);
+    }
+    if ( (parentID=calloc(1,sizeof(int))) == NULL) {
         fprintf(stderr,"calloc error in pre_evaluate()\n");
         exit(1);
     }
@@ -56,7 +83,8 @@ void pre_evaluate(/* TODO */) {
      *      --> parentID = {3,5}
      */
     *parentID=4;
-    while (nb_tasks < 10*nb_proc) {
+    // TODO change conds to do set up the childs??
+    do {
         // TODO take into account case where not enough tasks
         int sum = 0, j = 0;
         taskMoves = NULL; // For later realloc
@@ -68,6 +96,7 @@ void pre_evaluate(/* TODO */) {
         for (int i = 0 ; i<nb_tasks ; i++) {
             if (i >= parentID[j]) 
                 j++;
+            // TODO check that
             play_move(&parentTrees[j], parentMoves[i], &taskTree[i]);
 
             taskResults[i].score = -MAX_SCORE - 1;
@@ -113,7 +142,14 @@ void pre_evaluate(/* TODO */) {
         parentMoves = taskMoves;
         nb_tasks = sum;
         // TODO taskID
+    } while (nb_tasks < 11*nb_proc);
+
+    /* ------------ TESTING (not parallel) --------------------*/
+    for (int i=0; i<nb_tasks ; i++) {
+        evaluate(&taskTrees[i], &taskResults[i]);
     }
+    /*---------------------------------------------------------*/
+        
     // Do parallel thingy
     /* 
      * Master sets up to send tasks to every slave
