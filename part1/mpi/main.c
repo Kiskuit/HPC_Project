@@ -2,160 +2,156 @@
 #include <mpi.h>
 
 /* 2017-02-23 : version 1.0 */
+#define FALSE 0
+#define TRUE 1
 
 unsigned long long int node_searched = 0;
 
-
-/*
- * IDEA :
- *  - Master call pre_evaluate
- *      Reccursively goes as deep as needed (~10x nbProc)
- *      Sets up trees and results structures for slaves
- *      Distribute work to slaves.
- *  - Slaves wait for work
- *      call to evaluate when receiving trees,
- *      signal master upon completion
- *      wait for more
- *          -> last message with special TAG to exit and call MPI_Finalize()
- */
-
 struct recTree_t {
-    int id;
     int parentId;
-    int nbChild;
-    int *childId;
+    int move;
     tree_t *tree;
     result_t *result;
 };
 typedef struct recTree_t recTree_t;
+void evaluate(tree_t * T, result_t *result);
 
-void pre_evaluate(/* TODO */) {
-    // TODO handle node_searched increment in this function
+void pre_evaluate (tree_t *T, result_t *result) {
+    node_searched++;
 
-    /* Tree handling */
+    /* MPI vars */
+    int nb_proc = 2;
+    MPI_Comm_size(MPI_COMM_WORLD, &nb_proc);
+
+    /* Tree handling
+     * beg is the index of the beginning
+     * of the current line of the tree */
     recTree_t *preEvalTrees;
-    int nbElts = 1;
+    int beg, sizeTree=1;
 
+    /* Array to store moves */
     int nb_tasks, n_moves;
     move_t moves[MAX_MOVES];
 
-    tree_t *taskTrees, *parentTrees;
-    result_t *taskResults, *parentResults;
-
+    /* Treee initial allocation,
+     * it is then reallocated along the execution */
     if ( (preEvalTrees=malloc(sizeof(recTree_t))) == NULL) {
         fprintf(stderr,"malloc error in pre_evaluate()\n");
         exit(1);
     }
-    preEvalTrees[0].id = 0;
+    /* Set structure up for first element */
     preEvalTrees[0].parentId = -1;
-    // TODO determine if we need the childID thingy
     preEvalTrees[0].tree = T;
     preEvalTrees[0].result = result;
 
-    /* Preparation phase */
+    /* Original tree_t/result_t preparation phase
+     * We skip tests for draw/victory, max depth
+     * and n_moves because we assume real game is
+     * given in input */
     result->score = -MAX_SCORE -1;
     result->pv_length = 0;
-    if (test_draw_or_victory(T, result))
-        return;
     compute_attack_squares(T);
     nb_tasks = n_moves = generate_legal_moves(T, moves);
-
-    /* TODO TITLE */
-    if ( (taskTrees=calloc(nb_tasks, sizeof(tree_t)))==NULL) {
-        fprintf(stderr,"calloc error in pre_evaluate()\n");
+    beg = sizeTree;
+    sizeTree+=n_moves;
+    if ( (preEvalTrees=realloc(preEvalTrees, sizeTree*sizeof(recTree_t))) == NULL) {
+        fprintf(stderr, "realloc error in pre_evaluate()\n");
         exit(1);
     }
-    if ( (taskResults=calloc(nb_tasks, sizeof(tree_t))) == NULL) {
-        fprintf(stderr,"calloc error in pre_evaluate()\n");
-        exit(1);
-    }
-    if ( (parentID=calloc(1,sizeof(int))) == NULL) {
-        fprintf(stderr,"calloc error in pre_evaluate()\n");
-        exit(1);
-    }
-    parentTrees = T;
-    parentResults = result;
-    parentMoves = moves;
-    /* Tasks from a given parent are all consecutives in taskTrees and taskResults
-     * parentID is an array of the same size as taskParents. Elements are indexes
-     * at which the parent changes.
-     * EG : 2 parents P0 & P1. P0 has 3 childs, P1 2.
-     *      --> parentID = {3,5}
-     */
-    *parentID=4;
-    // TODO change conds to do set up the childs??
-    do {
-        // TODO take into account case where not enough tasks
-        int sum = 0, j = 0;
-        taskMoves = NULL; // For later realloc
-        int *taskID;
-        if ( (taskID = malloc(nb_tasks*sizeof(int))) == NULL) {
-            fprintf(stderr, "malloc error in pre_evaluate()\n");
+    // TODO some comments here?
+    for (int i=beg ; i<sizeTree ; i++) {
+        preEvalTrees[i].parentId = 0;
+        preEvalTrees[i].move = moves[i-beg];
+        preEvalTrees[i].tree = malloc(sizeof(tree_t));
+        preEvalTrees[i].result = malloc(sizeof(result_t));
+        if (!preEvalTrees[i].tree || !preEvalTrees[i].result) {
+            fprintf(stderr,"malloc error in pre_evaluate()\n");
             exit(1);
         }
-        for (int i = 0 ; i<nb_tasks ; i++) {
-            if (i >= parentID[j]) 
-                j++;
-            // TODO check that
-            play_move(&parentTrees[j], parentMoves[i], &taskTree[i]);
+        play_move(preEvalTrees[0].tree, moves[i-beg], preEvalTrees[i].tree);
+    }
 
-            taskResults[i].score = -MAX_SCORE - 1;
-            taskResults[i].pv_length = 0;
-            if (test_draw_or_victory(&taskTrees[i], &taskResults[i])){
-                // What are we doing here?
+    while (nb_tasks < 10*nb_proc) {
+        int nbContinue=0, sum=0;
+        int bound = beg+nb_tasks;
+        for (int i=beg ; i<bound ; i++) {
+            node_searched++;
+            tree_t *tmpTree = preEvalTrees[i].tree;
+            result_t *tmpResult = preEvalTrees[i].result;
+
+            tmpResult->score = -MAX_SCORE-1;
+            tmpResult->pv_length = 0;
+            if (test_draw_or_victory(tmpTree, tmpResult)){
+                nbContinue++;
                 continue;
             }
-            compute_attack_squares(&taskTrees[i]);
-            if (taskTrees[i].depth == 0) {
-                taskResults[i].score = 
-                    (2*taskTree[i].side - 1)*heuristic_evaluation(&taskTree[i]);
-                // Same as above
+            if (tmpTree->depth ==0) {
+                tmpResult->score = (2*tmpTree->side-1) * heuristic_evaluation(tmpTree);
+                nbContinue++;
                 continue;
             }
-            n_moves = generate_legal_moves(&taskTrees[i], moves);
-            // VOODOO MAGIC
-            taskID[i] = n_moves + (i==0?0:taskID[i-1]);
-            if (n_moves  == 0) {
-                taskResults[i].score = check(&taskTrees[i]) ?
-                    -MAX_SCORE : CERTAIN_DRAW;
-                // Same as above
+            compute_attack_squares(tmpTree);
+            n_moves = generate_legal_moves(tmpTree, moves);
+            if (n_moves==0) {
+                tmpResult->score = check(tmpTree) ? -MAX_SCORE : CERTAIN_DRAW;
+                nbContinue++;
                 continue;
             }
-            else {
-                // Extend size of taskMoves array
-                sum += n_moves;
-                if ( (taskMoves = realloc(taskMoves,sum*sizeof(int))) == NULL) {
-                    fprintf(stderr, "realloc error in pre_eval()\n");
+            beg = sizeTree;
+            sizeTree += n_moves;
+            sum += n_moves;
+            if ( (preEvalTrees = realloc(preEvalTrees, sizeTree*sizeof(recTree_t))) == NULL) {
+                fprintf(stderr,"realloc error in pre_evaluate()\n");
+                exit(1);
+            }
+            for (int j=beg ; j<sizeTree ; j++) {
+                preEvalTrees[j].parentId = i;
+                preEvalTrees[j].move = moves[j-beg];
+                preEvalTrees[j].tree = malloc(sizeof(tree_t));
+                preEvalTrees[j].result = malloc(sizeof(result_t));
+                if (!preEvalTrees[j].tree || !preEvalTrees[j].result) {
+                    fprintf(stderr,"malloc error in pre_evaluate()\n");
                     exit(1);
                 }
-                // Copy moves into new array
-                memcpy(taskMoves+sum-n_moves, moves, n_moves*sizeof(int));
+                play_move(preEvalTrees[i].tree, moves[j-beg], preEvalTrees[j].tree);
             }
         }
-        // Preparation for next cycle of while
-        // TODO Do we need to free here?
-        // I think we want to keep the tree in RAM so we can access it
-        // but so far, it's lost...
-        // --> create a tree struct???
-        parentTrees = taskTrees;
-        parentResults = taskResults;
-        parentMoves = taskMoves;
+        if (nbContinue == nb_tasks) {
+            nb_tasks = 0;
+            break;
+        }
         nb_tasks = sum;
-        // TODO taskID
-    } while (nb_tasks < 11*nb_proc);
+    }
+    beg = sizeTree - nb_tasks;
 
     /* ------------ TESTING (not parallel) --------------------*/
-    for (int i=0; i<nb_tasks ; i++) {
-        evaluate(&taskTrees[i], &taskResults[i]);
+    for (int i=beg ; i<sizeTree ; i++) {
+        evaluate(preEvalTrees[i].tree, preEvalTrees[i].result);
     }
     /*---------------------------------------------------------*/
-        
     // Do parallel thingy
     /* 
      * Master sets up to send tasks to every slave
      * Send & Receive
      * Upon reception, make adjustment (best score thingy)
      */
+
+    /*---------------------------------------------------------*/
+    for (int i=sizeTree-1 ;  i>0 ; i--) {
+        /* To shorten and clarify expressions */
+        recTree_t task = preEvalTrees[i];
+        recTree_t parent = preEvalTrees[task.parentId];
+        int taskScore = -task.result->score;
+
+        if (taskScore > parent.result->score) {
+            parent.result->score = taskScore;
+            parent.result->best_move = task.move;
+            parent.result->pv_length = task.result->pv_length+1;
+            memcpy(parent.result->PV+1, task.result->PV,
+                    task.result->pv_length*sizeof(int));
+        }
+        parent.tree->alpha = MAX(parent.tree->alpha, taskScore);
+    }
 }
 
 // Only slaves call evaluate
@@ -165,11 +161,6 @@ void evaluate(tree_t * T, result_t *result)
 
     move_t moves[MAX_MOVES];
     int n_moves;
-
-    /* MPI vars */
-    int rank, comSize;
-    MPI_Comm_size(MPI_COMM_WORLD, &comSize);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     result->score = -MAX_SCORE - 1;
     result->pv_length = 0;
@@ -189,7 +180,6 @@ void evaluate(tree_t * T, result_t *result)
     }
 
     n_moves = generate_legal_moves(T, &moves[0]);
-    fprintf(stderr,"Height : %d\n", T->height);
 
     /* absence de coups légaux : pat ou mat */
     if (n_moves == 0) {
@@ -232,33 +222,39 @@ void evaluate(tree_t * T, result_t *result)
 
 
 void decide(tree_t * T, result_t *result){
-        for (int depth = 1;; depth++) {
-            T->depth = depth;
-            T->height = 0;
-            T->alpha_start = T->alpha = -MAX_SCORE - 1;
-            T->beta = MAX_SCORE + 1;
+    for (int depth = 1;; depth++) {
+        T->depth = depth;
+        T->height = 0;
+        T->alpha_start = T->alpha = -MAX_SCORE - 1;
+        T->beta = MAX_SCORE + 1;
 
-            printf("=====================================\n");
-            evaluate(T, result);
+        printf("=====================================\n");
+        pre_evaluate(T, result);
+        // TODO REMOVE THAT WHEN NOT TESTING
+        //if (depth==2) break;
 
-            printf("depth: %d / score: %.2f / best_move : ", T->depth, 0.01 * result->score);
-            print_pv(T, result);
+        printf("depth: %d / score: %.2f / best_move : ", T->depth, 0.01 * result->score);
+        print_pv(T, result);
 
-            if (DEFINITIVE(result->score))
-                break;
-        }
-
+        if (DEFINITIVE(result->score))
+            break;
+    }
 }
 
 int main(int argc, char **argv)
 {  
     tree_t root;
     result_t result;
-    int rank, comSize;
+    int rank=0, comSize;
     /* MPI Initialization */
     MPI_Init(NULL, NULL);
     MPI_Comm_size(MPI_COMM_WORLD, &comSize);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    if (comSize < 2) {
+        fprintf(stderr, "This program requires at least two processes!\n");
+        exit(1);
+    }
 
 
     if (rank==0) {
