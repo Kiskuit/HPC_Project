@@ -1,7 +1,7 @@
 #include "projet.h"
 #include <omp.h>
 
-#define OMP_MAX_PROF 2
+#define OMP_MAX_PROF 4
 
 /* 2017-02-23 : version 1.0 */
 
@@ -58,11 +58,11 @@ void evaluate(tree_t * T, result_t *result, int prof)
 
 #pragma omp task firstprivate(i) shared(child_result, child_score, child)
             {
-            play_move(T, moves[i], &child[i]);
+                play_move(T, moves[i], &child[i]);
 
-            evaluate(&child[i], &child_result[i], prof+1);
+                evaluate(&child[i], &child_result[i], prof+1);
 
-            child_score[i] = -child_result[i].score;
+                child_score[i] = -child_result[i].score;
             }
         }
 #pragma omp taskwait
@@ -70,19 +70,19 @@ void evaluate(tree_t * T, result_t *result, int prof)
         for(int i=0; i<n_moves; i++) {
             if(child_score[i] > child_score[max]) max = i;
         }
-            if (child_score[max] > result->score) {
-                result->score = child_score[max];
-                result->best_move = moves[max];
-                result->pv_length = child_result[max].pv_length + 1;
-                for(int j = 0; j < child_result[max].pv_length; j++)
-                    result->PV[j+1] = child_result[max].PV[j];
-                result->PV[0] = moves[max];
-            }
+        if (child_score[max] > result->score) {
+            result->score = child_score[max];
+            result->best_move = moves[max];
+            result->pv_length = child_result[max].pv_length + 1;
+            for(int j = 0; j < child_result[max].pv_length; j++)
+                result->PV[j+1] = child_result[max].PV[j];
+            result->PV[0] = moves[max];
+        }
 
-            //if (ALPHA_BETA_PRUNING && child_score[i] >= T->beta)
-            //    break;    
+        //if (ALPHA_BETA_PRUNING && child_score[i] >= T->beta)
+        //    break;    
 
-            //T->alpha = MAX(T->alpha, child_score[i]);
+        //T->alpha = MAX(T->alpha, child_score[i]);
     }
     if (prof >= OMP_MAX_PROF) { 
         for (int i=0 ; i<n_moves ; i++) {
@@ -115,25 +115,25 @@ void evaluate(tree_t * T, result_t *result, int prof)
 }
 
 /*void fct_for(tree_t *T, move_t m, tree_t *child, result_t *child_res, int prof, result_t *cur_res) {
-    play_move(T, m, child);
+  play_move(T, m, child);
 
-    evaluate(child, child_res, prof);
+  evaluate(child, child_res, prof);
 
-    int child_score = -child_res->score;
+  int child_score = -child_res->score;
 
 #pragma omp critical(CHILD)
-    { // BLOCK OMP : critical
-        if (child_score > cur_res->score) {
-            cur_res->score = child_score;
-            cur_res->best_move = m;
-            cur_res->pv_length = child_res->pv_length+1;
-            for (int j=0 ; j<child_res->pv_length ; j++)
-                cur_res->PV[j+1] = child_res->PV[j];
-            cur_res->PV[0] = m;
-        }
+{ // BLOCK OMP : critical
+if (child_score > cur_res->score) {
+cur_res->score = child_score;
+cur_res->best_move = m;
+cur_res->pv_length = child_res->pv_length+1;
+for (int j=0 ; j<child_res->pv_length ; j++)
+cur_res->PV[j+1] = child_res->PV[j];
+cur_res->PV[0] = m;
+}
 
-        T->alpha = MAX(T->alpha, child_score);
-    } // BLOCK OMP : critical
+T->alpha = MAX(T->alpha, child_score);
+} // BLOCK OMP : critical
 }*/
 
 void decide(tree_t * T, result_t *result)

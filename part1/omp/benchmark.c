@@ -13,11 +13,13 @@ int main(int argc, char** argv) {
     FILE* fp;
     char output[256];
     char command[256];
-    char *envSave = getenv("OMP_NUM_THREADS");
+    char envSave[256]; 
     char envPara[256];
     char envSeq[256];
     float avParallel=0;
     float avSequentiel=0;
+    strcpy(envSave, "OMP_NUM_THREADS=");
+    strcat(envSave, getenv("OMP_NUM_THREADS"));
     strcpy(envPara, "OMP_NUM_THREADS=");
     strcat(envPara, argv[3]);
     strcpy(envSeq, "OMP_NUM_THREADS=1");
@@ -63,6 +65,7 @@ int main(int argc, char** argv) {
     
     printf("Taux = %f\n", (avSequentiel / avParallel) / nbThreads);
     pclose(fp);
+    putenv(envSave);
 
     return EXIT_SUCCESS;
 }
