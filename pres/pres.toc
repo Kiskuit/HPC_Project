@@ -1,6 +1,0 @@
-\beamer@endinputifotherversion {3.36pt}
-\beamer@sectionintoc {1}{Impl\IeC {\'e}mentation}{3}{0}{1}
-\beamer@subsectionintoc {1}{1}{OpenMP}{3}{0}{1}
-\beamer@subsectionintoc {1}{2}{MPI}{6}{0}{1}
-\beamer@sectionintoc {2}{Analyse}{9}{0}{2}
-\beamer@subsectionintoc {2}{1}{Chevauchement}{12}{0}{2}
