@@ -39,3 +39,9 @@ decide
 
 # Hosfile
 hostfile
+
+# TeX files
+*.aux
+*.log
+*.nav
+*.toc
