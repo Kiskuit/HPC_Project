@@ -364,6 +364,7 @@ int main(int argc, char **argv)
                         MPI_COMM_WORLD, NULL);
                 memcpy (&recv, buffer, lengthMsg);
 
+                /* FUCK UP JUSTE HERE! segfault when calling evaluate */
                 /* Main job */
                 evaluate (&recv.tree, &recv.result);
 
