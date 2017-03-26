@@ -57,6 +57,31 @@ typedef struct tree_t {
   unsigned long long int history[MAX_DEPTH];  /* hachés des positions rencontrées depuis la racine de l'exploration */
 } tree_t;
 
+const int nItemsTree = 14;
+int blockLengthTree[] = {128,128,1, 1,1,1,1,1, 2,2,128, 1,1,MAX_DEPTH};
+MPI_Datatype typeTree[] = {MPI_CHAR,MPI_CHAR,MPI_INT,                   /* pieces, colors, side */
+                            MPI_INT,MPI_INT,MPI_INT,MPI_INT,MPI_INT,    /* depth,height,alpha,beta,alpha_start */
+                            MPI_INT,MPI_INT,MPI_CHAR,                   /* king,pawns,attack */
+                            MPI_INT,MPI_UNSIGNED_LONG_LONG_INT,MPI_UNSIGNED_LONG_LONG_INT};
+MPI_Datatype mpi_tree_t;
+MPI_Aint offsetsTree[14];
+offsetsTree[0] = offsetof(tree_t, pieces);
+offsetsTree[1] = offsetof(tree_t, colors);
+offsetsTree[2] = offsetof(tree_t, side);
+
+offsetsTree[3] = offsetof(tree_t, depth);
+offsetsTree[4] = offsetof(tree_t, height);
+offsetsTree[5] = offsetof(tree_t, alpha);
+offsetsTree[6] = offsetof(tree_t, beta);
+offsetsTree[7] = offsetof(tree_t, alpha_start);
+
+offsetsTree[8] = offsetof(tree_t, king);
+offsetsTree[9] = offsetof(tree_t, pawns);
+offsetsTree[10] = offsetof(tree_t, attack);
+
+offsetsTree[11] = offsetof(tree_t, suggested_move);
+offsetsTree[12] = offsetof(tree_t, hash);
+offsetsTree[13] = offsetof(tree_t, history);
 
 /* représentation du résultat de l'évaluation d'une position */
 typedef struct {
@@ -65,6 +90,30 @@ typedef struct {
   int pv_length;
   int PV[MAX_DEPTH];
 } result_t;
+
+const int nItemsResult = 4;
+int blockLengthResult[] = {1,1,1,MAX_DEPTH};
+MPI_Datatype typeResult[] = {MPI_INT,MPI_INT,MPI_INT,MPI_INT};
+MPI_Datatype mpi_result_t;
+MPI_Aint offsetsResult[4];
+offsetsResult[0] = offsetof(result_t, score);
+offsetsResult[1] = offsetof(result_t, best_move);
+offsetsResult[2] = offsetof(result_t, pv_length);
+offsetsResult[3] = offsetof(result_t, PV);
+
+typedef struct meta_t {
+    tree_t tree;
+    result_t result;
+} meta_t;
+
+const int nItemsMeta = 2;
+int blockLengthResult[] = {1,1};
+MPI_Datatype typeMeta[] = {mpi_tree_t,mpi_result_t};
+MPI_Datatype mpi_meta_t;
+MPI_Aint offsetsMeta[2];
+offsetsMeta[0] = offsetof(meta_t, tree);
+offsetsMeta[1] = offsetof(meta_t, result);
+
 
 /********************************************
  * Fonctions auxiliaires
