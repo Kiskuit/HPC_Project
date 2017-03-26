@@ -36,3 +36,6 @@ decide
 # Vi files
 *~
 *.swp
+
+# Hosfile
+hostfile
