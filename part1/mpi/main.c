@@ -1,5 +1,5 @@
 #include "projet.h"
-#include <mpi.h>
+#include <unistd.h>
 
 /* 2017-02-23 : version 1.0 */
 #define FALSE 0
@@ -15,6 +15,8 @@ struct recTree_t {
 };
 typedef struct recTree_t recTree_t;
 void evaluate(tree_t * T, result_t *result);
+void pre_evaluate (tree_t *T, result_t *result) ;
+
 
 void pre_evaluate (tree_t *T, result_t *result) {
     node_searched++;
@@ -125,9 +127,9 @@ void pre_evaluate (tree_t *T, result_t *result) {
     beg = sizeTree - nb_tasks;
 
     /* ------------ TESTING (not parallel) --------------------*/
-    for (int i=beg ; i<sizeTree ; i++) {
+    /*for (int i=beg ; i<sizeTree ; i++) {
         evaluate(preEvalTrees[i].tree, preEvalTrees[i].result);
-    }
+    }*/
     /*---------------------------------------------------------*/
     // Do parallel thingy
     /* 
@@ -135,6 +137,55 @@ void pre_evaluate (tree_t *T, result_t *result) {
      * Send & Receive
      * Upon reception, make adjustment (best score thingy)
      */
+    /* Setup */
+    int lengthMsg = sizeof(meta_t);
+    meta_t meta;
+    char *buffer;
+    if ( (buffer=malloc(lengthMsg)) == NULL) {
+        fprintf(stderr,"malloc error in pre_evaluate()\n");
+        exit(1);
+    }
+
+    /* Initial batch to start things off */
+    for (int i=1 ; i<nb_proc ; i++) {
+        meta.index = beg;
+        meta.tree = *preEvalTrees[beg].tree;
+        meta.result = *preEvalTrees[beg].result;
+        /* Wrapping in ugly ugly char array */
+        memcpy (buffer, &meta, lengthMsg);
+        /* Send message */
+        MPI_Send(buffer, lengthMsg, MPI_CHAR, i, TAG_CONTINUE, MPI_COMM_WORLD);
+        beg++;
+    }
+    
+    printf(">>>>>> First batch sent\n");
+    sleep(6);
+
+    /* Serve slaves that have finished, tell them to stop in case job's done */
+    int slaveFinished = 0;
+    while (slaveFinished < nb_proc) {
+        /* Reception */
+        MPI_Status status;
+        MPI_Recv(buffer, lengthMsg, MPI_CHAR, MPI_ANY_SOURCE,
+                MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        int dest = status.MPI_SOURCE;
+        /* Store result */
+        memcpy (&meta, buffer, lengthMsg);
+        *preEvalTrees[meta.index].tree = meta.tree;
+        *preEvalTrees[meta.index].result = meta.result;
+        
+        if (beg <sizeTree) {
+            meta.tree = *preEvalTrees[beg].tree;
+            meta.result = *preEvalTrees[beg].result;
+            memcpy (buffer, &meta, lengthMsg);
+            MPI_Send (buffer, lengthMsg, MPI_CHAR, dest, TAG_CONTINUE, MPI_COMM_WORLD);
+            beg++;
+        }
+        else {
+            MPI_Send (NULL, 0, MPI_INT, dest, TAG_STOP, MPI_COMM_WORLD);
+            slaveFinished++;
+        }
+    }
 
     /*---------------------------------------------------------*/
     for (int i=sizeTree-1 ;  i>0 ; i--) {
@@ -257,6 +308,7 @@ int main(int argc, char **argv)
     }
 
 
+    int lengthMsg = sizeof(meta_t);
     if (rank==0) {
         if (argc < 2) {
             printf("usage: %s \"4k//4K/4P w\" (or any position in FEN)\n", argv[0]);
@@ -291,8 +343,35 @@ int main(int argc, char **argv)
             free_tt();
     }
     else {
-        // TODO
-        fprintf(stderr,"Proc %d ne fait rien\n", rank);
+        //fprintf(stderr,"Proc %d ne fait rien\n", rank);
+        meta_t recv;
+        MPI_Status status;
+        int tag;
+        char *buffer;
+        if ( (buffer = malloc (lengthMsg)) == NULL) {
+            fprintf(stderr, "malloc error in main()\n");
+            exit(1);
+        }
+        const int master = 0;
+        /* Loop to receive work, execute it, and send it back */
+        do {
+            MPI_Probe (master, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            tag = status.MPI_TAG;
+
+            if(tag == TAG_CONTINUE) {
+                /* More work to do */
+                MPI_Recv (buffer, lengthMsg, MPI_CHAR, master, tag,
+                        MPI_COMM_WORLD, NULL);
+                memcpy (&recv, buffer, lengthMsg);
+
+                /* Main job */
+                evaluate (&recv.tree, &recv.result);
+
+                /* Send response */
+                memcpy (buffer, &recv, lengthMsg);
+                MPI_Send (buffer, lengthMsg, MPI_CHAR, master, TAG_ANS, MPI_COMM_WORLD);
+            }
+        } while (tag == TAG_CONTINUE);
     }
 
     /* MPI Finalization */
