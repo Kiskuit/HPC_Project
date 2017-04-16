@@ -5,21 +5,33 @@
 #define FALSE 0
 #define TRUE 1
 
+/* Global Variables */
 unsigned long long int node_searched = 0;
 
-struct recTree_t {
+/* Structures
+ * TODO move to projet.h?
+*/
+typedef struct recTree_t {
     int parentId;
     int move;
     tree_t *tree;
     result_t *result;
-};
-typedef struct recTree_t recTree_t;
+} recTree_t;
+
+/* Prototypes
+ * TODO move to projet.h?
+*/
 void evaluate(tree_t * T, result_t *result);
+
 void pre_evaluate (tree_t *T, result_t *result) ;
+
 MPI_Datatype *MPI_tree_creator ();
+
 MPI_Datatype *MPI_result_creator ();
 
 
+/* Function definition */
+/* TODO doc */
 MPI_Datatype *MPI_tree_creator () {
     /* Number of different blocks of types in struct */
     const int nbTypes = 3;
@@ -43,6 +55,7 @@ MPI_Datatype *MPI_tree_creator () {
     return MPI_tree;
 }
 
+/* TODO doc */
 MPI_Datatype *MPI_result_creator () {
     /* Number of different blocks of types in struct */
     const int nbTypes = 1;
@@ -64,33 +77,38 @@ MPI_Datatype *MPI_result_creator () {
     return MPI_result;
 }
 
+/* Master's core function :
+ * -First : Perform breadth-first search until there are
+ * at least 10x more tasks than slaves.
+ * -Second : Distribute works to slave as soon as they are ready.
+ * -Third : Recombine all work done by slaves.
+*/
 void pre_evaluate (tree_t *T, result_t *result) {
+    /* TODO handle node_searched in slave work */
     node_searched++;
 
     /* MPI vars */
-    int nb_proc = 2;
+    int nb_proc;
     MPI_Comm_size(MPI_COMM_WORLD, &nb_proc);
+    nb_proc--; /* We dont count the master which doesnt work */
 
-    /* Tree handling
+    /* ---------------Tree initialization---------------
      * beg is the index of the beginning
      * of the current line of the tree */
-    recTree_t *preEvalTrees;
     int beg, sizeTree=1;
-
-    /* Array to store moves */
-    int nb_tasks, n_moves;
-    move_t moves[MAX_MOVES];
-
-    /* Treee initial allocation,
-     * it is then reallocated along the execution */
+    recTree_t *preEvalTrees;
     if ( (preEvalTrees=malloc(sizeof(recTree_t))) == NULL) {
         fprintf(stderr,"malloc error in pre_evaluate()\n");
         exit(1);
     }
-    /* Set structure up for first element */
+    /* Set up first element */
     preEvalTrees[0].parentId = -1;
     preEvalTrees[0].tree = T;
     preEvalTrees[0].result = result;
+
+    /* Array to store moves */
+    int nb_tasks, n_moves;
+    move_t moves[MAX_MOVES];
 
     /* Original tree_t/result_t preparation phase
      * We skip tests for draw/victory, max depth
@@ -101,12 +119,14 @@ void pre_evaluate (tree_t *T, result_t *result) {
     compute_attack_squares(T);
     nb_tasks = n_moves = generate_legal_moves(T, moves);
     beg = sizeTree;
-    sizeTree+=n_moves;
+    sizeTree += n_moves;
+    /* tree is extended */
     if ( (preEvalTrees=realloc(preEvalTrees, sizeTree*sizeof(recTree_t))) == NULL) {
         fprintf(stderr, "realloc error in pre_evaluate()\n");
         exit(1);
     }
-    // TODO some comments here?
+
+    /* Setup first level of the tree */
     for (int i=beg ; i<sizeTree ; i++) {
         preEvalTrees[i].parentId = 0;
         preEvalTrees[i].move = moves[i-beg];
@@ -116,114 +136,89 @@ void pre_evaluate (tree_t *T, result_t *result) {
             fprintf(stderr,"malloc error in pre_evaluate()\n");
             exit(1);
         }
-        play_move(preEvalTrees[0].tree, moves[i-beg], preEvalTrees[i].tree);
+        //play_move(preEvalTrees[0].tree, moves[i-beg], preEvalTrees[i].tree);
+        play_move(T, preEvalTrees[i].move, preEvalTrees[i].tree);
     }
 
+    /* ----------------- Breadth-first search --------------- */
     while (nb_tasks < 10*nb_proc) {
-        int nbContinue=0, sum=0;
-        int bound = beg+nb_tasks;
+        // TODO get rid of nbContinue mechanics (just test if nb_tasks==0)
+        int bound = sizeTree;
+        nb_tasks = 0;
+        /* For every node at this level */
         for (int i=beg ; i<bound ; i++) {
             node_searched++;
+            /* Just to shorten notations */
             tree_t *tmpTree = preEvalTrees[i].tree;
             result_t *tmpResult = preEvalTrees[i].result;
 
+            /* ------- Equivalant to evaluate call -------- */
             tmpResult->score = -MAX_SCORE-1;
             tmpResult->pv_length = 0;
             if (test_draw_or_victory(tmpTree, tmpResult)){
-                nbContinue++;
                 continue;
             }
             if (tmpTree->depth ==0) {
                 tmpResult->score = (2*tmpTree->side-1) * heuristic_evaluation(tmpTree);
-                nbContinue++;
                 continue;
             }
             compute_attack_squares(tmpTree);
             n_moves = generate_legal_moves(tmpTree, moves);
             if (n_moves==0) {
                 tmpResult->score = check(tmpTree) ? -MAX_SCORE : CERTAIN_DRAW;
-                nbContinue++;
                 continue;
             }
-            beg = sizeTree;
+
+            /* ------- Setup childs -------- */
+            int lower = sizeTree;
             sizeTree += n_moves;
-            sum += n_moves;
+            nb_tasks += n_moves;
+            /* Extend tree */
             if ( (preEvalTrees = realloc(preEvalTrees, sizeTree*sizeof(recTree_t))) == NULL) {
                 fprintf(stderr,"realloc error in pre_evaluate()\n");
                 exit(1);
             }
-            for (int j=beg ; j<sizeTree ; j++) {
+            /* For every child of this node */
+            for (int j=lower ; j<sizeTree ; j++) {
                 preEvalTrees[j].parentId = i;
-                preEvalTrees[j].move = moves[j-beg];
+                preEvalTrees[j].move = moves[j-lower];
                 preEvalTrees[j].tree = malloc(sizeof(tree_t));
                 preEvalTrees[j].result = malloc(sizeof(result_t));
                 if (!preEvalTrees[j].tree || !preEvalTrees[j].result) {
                     fprintf(stderr,"malloc error in pre_evaluate()\n");
                     exit(1);
                 }
-                play_move(preEvalTrees[i].tree, moves[j-beg], preEvalTrees[j].tree);
+                //play_move(preEvalTrees[i].tree, moves[j-beg], preEvalTrees[j].tree);
+                play_move(tmpTree, preEvalTrees[j].move, preEvalTrees[j].tree);
             }
-        }
-        if (nbContinue == nb_tasks) {
-            nb_tasks = 0;
+        } // END FOR i
+        
+        if (nb_tasks == 0) {
+            // TODO raise a flag or smth?
             break;
         }
-        nb_tasks = sum;
-    }
-    beg = sizeTree - nb_tasks;
+        /* Update beginning index */
+        beg = bound;
+    } //END WHILE
+    printf("nb_tasks : %d\n", nb_tasks);
 
     /* ------------ TESTING (not parallel) --------------------*/
     /*for (int i=beg ; i<sizeTree ; i++) {
         evaluate(preEvalTrees[i].tree, preEvalTrees[i].result);
     }*/
-    /*---------------------------------------------------------*/
-    // Do parallel thingy
-    /* 
-     * Master sets up to send tasks to every slave
-     * Send & Receive
-     * Upon reception, make adjustment (best score thingy)
-     */
-    /* Crate MPI_Datatypes */
-    MPI_Datatype *MPI_tree_type, *MPI_result_type;
-    MPI_tree_type = MPI_tree_creator ();
-    MPI_result_type = MPI_result_creator ();
 
-    /* Initial batch to start things off */
-    for (int dest=1 ; dest<nb_proc ; dest++) {
-        /* TODO : Use meta struct to make only one send! */
-        /* Send index */
-        MPI_Send (&beg, 1, MPI_INT, dest, TAG_CONTINUE, MPI_COMM_WORLD);
-        /* Send tree*/
-        MPI_Send (preEvalTrees[beg].tree, 1, *MPI_tree_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
-        /* Send result*/
-        MPI_Send (preEvalTrees[beg].result, 1, *MPI_result_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
-        beg++;
-    }
-    
-    printf(">>>>>> First batch sent\n");
+    /*--------------------------------------------------------------- */
+    /* ------------ DISTRIBUTE WORK AMONG SLAVES -------------------- */
+    /*--------------------------------------------------------------- */
+    /* Only distribute work if there is some... */
+    if (nb_tasks != 0) {
+        /* Crate MPI_Datatypes */
+        MPI_Datatype *MPI_tree_type, *MPI_result_type;
+        MPI_tree_type = MPI_tree_creator ();
+        MPI_result_type = MPI_result_creator ();
 
-    /* Serve slaves that have finished, tell them to stop in case job's done */
-    int slaveFinished = 0;
-    /* While at least one slave hasnt finished work yet */
-    while (slaveFinished < nb_proc) {
-        /* TODO : Use meta struct to make only one Recv! */
-        /* Reception */
-        MPI_Status status;
-        int indexRecv;
-        /* Recv index */
-        MPI_Recv (&indexRecv, 1, MPI_INT, MPI_ANY_SOURCE,
-                MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        int dest, source = status.MPI_SOURCE;
-        dest = source;
-        /* Recv tree */
-        MPI_Recv (preEvalTrees[indexRecv].tree, 1, *MPI_tree_type, source,
-                MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
-        /* Recv result */
-        MPI_Recv (preEvalTrees[indexRecv].result, 1, *MPI_result_type, source,
-                MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
-        
-        /* If there are more jobs to send */
-        if (beg <sizeTree) {
+        /* Initial batch to start things off */
+        for (int dest=1 ; dest<nb_proc ; dest++) {
             /* TODO : Use meta struct to make only one send! */
             /* Send index */
             MPI_Send (&beg, 1, MPI_INT, dest, TAG_CONTINUE, MPI_COMM_WORLD);
@@ -233,11 +228,44 @@ void pre_evaluate (tree_t *T, result_t *result) {
             MPI_Send (preEvalTrees[beg].result, 1, *MPI_result_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
             beg++;
         }
-        else {
-            MPI_Send (NULL, 0, MPI_INT, dest, TAG_STOP, MPI_COMM_WORLD);
-            slaveFinished++;
+        printf(">>>>>> First batch sent\n");
+
+        int slaveFinished = 0;
+        /* While at least one slave hasnt finished work yet, send work */
+        while (slaveFinished < nb_proc) {
+            /* TODO : Use meta struct to make only one Recv! */
+            /* Reception */
+            MPI_Status status;
+            int indexRecv;
+            /* Recv index */
+            MPI_Recv (&indexRecv, 1, MPI_INT, MPI_ANY_SOURCE,
+                    MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+            int dest, source = status.MPI_SOURCE;
+            dest = source;
+            /* Recv tree */
+            MPI_Recv (preEvalTrees[indexRecv].tree, 1, *MPI_tree_type, source,
+                    MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
+            /* Recv result */
+            MPI_Recv (preEvalTrees[indexRecv].result, 1, *MPI_result_type, source,
+                    MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
+            
+            /* If there are more jobs to send */
+            if (beg <sizeTree) {
+                /* TODO : Use meta struct to make only one send! */
+                /* Send index */
+                MPI_Send (&beg, 1, MPI_INT, dest, TAG_CONTINUE, MPI_COMM_WORLD);
+                /* Send tree*/
+                MPI_Send (preEvalTrees[beg].tree, 1, *MPI_tree_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
+                /* Send result*/
+                MPI_Send (preEvalTrees[beg].result, 1, *MPI_result_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
+                beg++;
+            }
+            else {
+                MPI_Send (NULL, 0, MPI_INT, dest, TAG_STOP, MPI_COMM_WORLD);
+                slaveFinished++;
+            }
         }
-    }
+    } // END if (worktosend)
 
     /*--------------------------------------------------------- *
      * ------- When everything is done, recombine ------------- *
@@ -405,9 +433,13 @@ int main(int argc, char **argv)
         const int dest = 0;
         /* Loop to receive work, execute it, and send it back */
         do {
+            sleep(1);
+            printf("TAG : %d\n", tag);
             MPI_Probe (dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
             tag = status.MPI_TAG;
 
+            sleep(1);
+            printf("TAG : %d\n", tag);
             if(tag == TAG_CONTINUE) { /* More work to do */
                 /* Recv index */
                 MPI_Recv (&indexRecv, 1, MPI_INT, dest, tag,
@@ -427,7 +459,6 @@ int main(int argc, char **argv)
                 MPI_Send (&indexRecv, 1, MPI_INT, dest, TAG_ANS, MPI_COMM_WORLD);
                 MPI_Send (&treeRecv, 1, *MPI_tree_type, dest, TAG_ANS, MPI_COMM_WORLD);
                 MPI_Send (&resultRecv, 1, *MPI_result_type, dest, TAG_ANS, MPI_COMM_WORLD);
-                printf("I got there!\n");
             }
         } while (tag == TAG_CONTINUE);
     }
