@@ -46,19 +46,18 @@ typedef char board_t[128];
 typedef struct tree_t {
   board_t pieces;   /* couleur des pièces */
   board_t colors;   /* nature des pièces */
+  board_t attack;   /* cases attaquées par les différentes pièces */
+
   int side;         /* joueur dont c'est le tour */
-  
   int depth;        /* nombre d'appels récursifs à evaluate encore autorisés */
   int height;       /* nombre d'appels récursifs depuis la racine */
   int alpha;        /* borne inférieure sur le score qu'il est possible d'obtenir */
   int beta;         /* borne supérieure ... */
   int alpha_start;  /* valeur de alpha au début de l'exploration de la position */
-
   square_t king[2]; /* positions des deux rois */
   int pawns[2];     /* nombre de pions de chaque joueur */
-  board_t attack;   /* cases attaquées par les différentes pièces */
-
   move_t suggested_move;         /* meilleur coup suggéré par la table de hachage */
+
   unsigned long long int hash;   /* haché de la position (technique de zobrist) */
   unsigned long long int history[MAX_DEPTH];  /* hachés des positions rencontrées depuis la racine de l'exploration */
 } tree_t;

@@ -16,7 +16,53 @@ struct recTree_t {
 typedef struct recTree_t recTree_t;
 void evaluate(tree_t * T, result_t *result);
 void pre_evaluate (tree_t *T, result_t *result) ;
+MPI_Datatype *MPI_tree_creator ();
+MPI_Datatype *MPI_result_creator ();
 
+
+MPI_Datatype *MPI_tree_creator () {
+    /* Number of different blocks of types in struct */
+    const int nbTypes = 3;
+    /* Number of elements in each block in struct */
+    const int blockLengths[] = {3*128, 11, 1+MAX_DEPTH};
+    /* MPI types of each block in struct */
+    const MPI_Datatype types[] = {MPI_CHAR, MPI_INT, MPI_UNSIGNED_LONG};
+    /* Blocks offsets in struct */
+    const MPI_Aint offsets[] = {offsetof (tree_t, pieces),
+                                offsetof (tree_t, side),
+                                offsetof (tree_t, hash)};
+
+    MPI_Datatype *MPI_tree;
+    if ( (MPI_tree = malloc(sizeof(MPI_Datatype))) == NULL) {
+        fprintf("malloc error in MPI_tree_creator()\n");
+        exit(1);
+    }
+    MPI_Type_create_struct (nbTypes, blockLengths, offsets, types, MPI_tree);
+    MPI_Type_commit (MPI_tree);
+
+    return MPI_tree;
+}
+
+MPI_Datatype *MPI_result_creator () {
+    /* Number of different blocks of types in struct */
+    const int nbTypes = 1;
+    /* Number of elements in each block in struct */
+    const int blockLengths[] = {3+MAX_DEPTH};
+    /* MPI types of each block in struct */
+    const MPI_Datatype types[] = {MPI_INT};
+    /* Blocks offsets in struct */
+    const MPI_Aint offsets[] = {offsetof (result_t, score)};
+
+    MPI_Datatype *MPI_result;
+    if ( (MPI_result = malloc(sizeof(MPI_Datatype))) == NULL) {
+        fprintf("malloc error in MPI_tree_creator()\n");
+        exit(1);
+    }
+    MPI_Type_create_struct (nbTypes, blockLengths, offsets, types, MPI_result);
+    MPI_Type_commit (MPI_result);
+
+    return MPI_result;
+}
 
 void pre_evaluate (tree_t *T, result_t *result) {
     node_searched++;
