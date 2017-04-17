@@ -1,0 +1,82 @@
+Bon, le code tourne et ça c'est deja cool.
+MAIS (il y a toujours un mais), l'output n'est pas le même que la version
+originale (j'ai testé que le premier input).
+Est-ce que c'est parce que c'est un cas particulier, et que les evaluate et
+la comparaison des résultats n'est pas faite dans le meme ordre?
+J'ai pas vérifié. En tous cas, le nombre de noeuds visités est bon (au moins
+pour cet exemple), donc on a du positif.
+
+En ce qui concerne le code, voici des explications :
+* l 13-55 :
+    Fonctions de créations des MPI_Datatype pour tree_t et result_t
+
+--------------------------------------------------
+
+* l 75-85 :
+    Création de la structure d'arbre du pb. Représenté sous forme d'un tableau
+    de structure preEvalTrees (chaque élément a l'indice de son pere).
+    Et initialisation de la racine de l'arbre.
+* l 94-104 :
+    On fait manuellement ce que fait evaluate(), + agrandissement de la
+    structure d'arbre.
+* l 106-118 :
+    On prépare le premier niveau de l'arbre.
+* l 121-178 : 
+    Parcours en largeur TANT QUE on a pas assez de taches. Chaque itération du
+    while nous fait avancer d'un niveau de prof dans l'arbre.
+    * l 125-170 : 
+        On parcourt tous les noeuds d'un niveau.
+        * l 132-146 :
+            On fait manuellement ce que fait evaluate().
+        * l 149-169 :
+            On prépare les enfants du noeud courant.
+    * l 172-174 :
+        Dans le cas où on a aucun enfants (parce que prof max par exemple), on
+        break pour pas boucler a l'infini dans le while
+* l 189-253 :
+    On réparti le travail aux esclaves (si il y a du travail à répartir).
+    * l 197-207 :
+        On envoie au moins une tache a chaque esclave.
+    * l 212-250 :
+        Tant que tous les esclaves n'ont pas fini
+        * l 218-231 :
+            On recoit les résultats de ce qu'ils ont fait
+        * l 234-249 :
+            Si il reste des taches, on envoie, sinon on lui signale qu'il a
+            fini
+* l 258-272 :
+    On parcourt les résultats de tous les noeuds de l'arbre, et on recombine
+
+--------------------------------------------------
+
+* l 276-339 :
+    Fct evaluate() de base, non modifiée
+
+--------------------------------------------------
+
+* l 343-355 :
+    EXECUTE UNIQUEMENT PAR LE MASTER. Fct decide() de base
+* l 356-360 :
+    EXECUTE UNIQUEMENT PAR LE MASTER. Si le travail est définitivement
+    terminé, le signal aux slaves avec TAG_OVER (ne pas confondre avec
+    TAG_STOP)
+* l 363-367 :
+    EXECUTE UNIQUEMENT PAR LES SLAVES. Execute en boucle la fonction des
+    esclaves tant que le signal TAG_OVER n'est pas reçu.
+
+--------------------------------------------------
+
+* l 380-417 :
+    TANT QUE il y a du boulot, on le recupere, le traite, et renvoie le
+    résultat.
+
+--------------------------------------------------
+
+* l 436-452 :
+    EXECUTE UNIQUEMENT PAR LE MASTER. Affichage de base
+* l 457-470 :
+    EXECUTE UNIQUEMENT PAR LE MASTER. Affichage de base
+
+
+
+
