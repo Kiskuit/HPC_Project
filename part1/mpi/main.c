@@ -214,9 +214,10 @@ void pre_evaluate (tree_t *T, result_t *result) {
     /* Only distribute work if there is some... */
     if (nb_tasks != 0) {
         /* Crate MPI_Datatypes */
-        MPI_Datatype *MPI_tree_type, *MPI_result_type;
-        MPI_tree_type = MPI_tree_creator ();
-        MPI_result_type = MPI_result_creator ();
+//        MPI_Datatype *MPI_tree_type, *MPI_result_type;
+//        MPI_tree_type = MPI_tree_creator ();
+//        MPI_result_type = MPI_result_creator ();
+        MPI_Datatype *MPI_meta_type = MPI_meta_creator();
 
         /* Initial batch to start things off */
         int iDEBUGTEST = 0;
@@ -224,11 +225,18 @@ void pre_evaluate (tree_t *T, result_t *result) {
             /* TODO : Use meta struct to make only one send! */
             /* Send index */
             iDEBUGTEST ++;
-            MPI_Send (&beg, 1, MPI_INT, dest, TAG_CONTINUE, MPI_COMM_WORLD);
-            /* Send tree*/
-            MPI_Send (preEvalTrees[beg].tree, 1, *MPI_tree_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
-            /* Send result*/
-            MPI_Send (preEvalTrees[beg].result, 1, *MPI_result_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
+//            MPI_Send (&beg, 1, MPI_INT, dest, TAG_CONTINUE, MPI_COMM_WORLD);
+//            /* Send tree*/
+//            MPI_Send (preEvalTrees[beg].tree, 1, *MPI_tree_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
+//            /* Send result*/
+//            MPI_Send (preEvalTrees[beg].result, 1, *MPI_result_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
+            meta_t metaSend;
+            metaSend.index = beg;
+            metaSend.nodes = 0;
+            metaSend.tree = *preEvalTrees[beg].tree;
+            metaSend.result = *preEvalTrees[beg].result;
+            MPI_Send (&metaSend, 1, *MPI_meta_type, dest, TAG_CONTINUE,
+                    MPI_COMM_WORLD);
             beg++;
         }
         //printf(">>>>>> First batch sent : %d\t%d\n", iDEBUGTEST, beg);
@@ -240,42 +248,58 @@ void pre_evaluate (tree_t *T, result_t *result) {
             /* Reception */
             MPI_Status status;
             int indexRecv, tmp;
-            /* Recv index */
-            MPI_Recv (&indexRecv, 1, MPI_INT, MPI_ANY_SOURCE,
+            meta_t metaRecv;
+            MPI_Recv (&metaRecv, 1, *MPI_meta_type, MPI_ANY_SOURCE,
                     MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-            int dest, source = status.MPI_SOURCE;
-            dest = source;
-            /* Recv tree */
-            MPI_Recv (preEvalTrees[indexRecv].tree, 1, *MPI_tree_type, source,
-                    MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
-            /* Recv result */
-            MPI_Recv (preEvalTrees[indexRecv].result, 1, *MPI_result_type, source,
-                    MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
-            /* Recv node_searched */
-            MPI_Recv (&tmp, 1, MPI_INT, MPI_ANY_SOURCE,
-                    MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
-            node_searched += tmp;
+            int dest = status.MPI_SOURCE;
+
+            *preEvalTrees[metaRecv.index].tree = metaRecv.tree;
+            *preEvalTrees[metaRecv.index].result = metaRecv.result;
+            node_searched += metaRecv.nodes;
+//            /* Recv index */
+//            MPI_Recv (&indexRecv, 1, MPI_INT, MPI_ANY_SOURCE,
+//                    MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+//            int dest, source = status.MPI_SOURCE;
+//            dest = source;
+//            /* Recv tree */
+//            MPI_Recv (preEvalTrees[indexRecv].tree, 1, *MPI_tree_type, source,
+//                    MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
+//            /* Recv result */
+//            MPI_Recv (preEvalTrees[indexRecv].result, 1, *MPI_result_type, source,
+//                    MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
+//            /* Recv node_searched */
+//            MPI_Recv (&tmp, 1, MPI_INT, MPI_ANY_SOURCE,
+//                    MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
+//            node_searched += tmp;
             
             /* If there are more jobs to send */
             if (beg <sizeTree) {
                 /* TODO : Use meta struct to make only one send! */
                 /* Send index */
                 iDEBUGTEST ++;
-                MPI_Send (&beg, 1, MPI_INT, dest, TAG_CONTINUE, MPI_COMM_WORLD);
-                /* Send tree*/
-                MPI_Send (preEvalTrees[beg].tree, 1, *MPI_tree_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
-                /* Send result*/
-                MPI_Send (preEvalTrees[beg].result, 1, *MPI_result_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
+                metaRecv.index = beg;
+                metaRecv.nodes = 0;
+                metaRecv.tree = *preEvalTrees[beg].tree;
+                metaRecv.result = *preEvalTrees[beg].result;
+                MPI_Send (&metaRecv, 1, *MPI_meta_type, dest,
+                        TAG_CONTINUE, MPI_COMM_WORLD);
+//                MPI_Send (&beg, 1, MPI_INT, dest, TAG_CONTINUE, MPI_COMM_WORLD);
+//                /* Send tree*/
+//                MPI_Send (preEvalTrees[beg].tree, 1, *MPI_tree_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
+//                /* Send result*/
+//                MPI_Send (preEvalTrees[beg].result, 1, *MPI_result_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
                 beg++;
                 //printf(">>>>>> batch sent : %d\t%d\n", iDEBUGTEST, beg);
             }
             else {
-                MPI_Send (NULL, 0, MPI_INT, dest, TAG_STOP, MPI_COMM_WORLD);
+//                MPI_Send (NULL, 0, MPI_INT, dest, TAG_STOP, MPI_COMM_WORLD);
+                MPI_Send (NULL, 0, *MPI_meta_type, dest, TAG_STOP, MPI_COMM_WORLD);
                 slaveFinished++;
             }
         }
-        MPI_Type_free (MPI_tree_type);
-        MPI_Type_free (MPI_result_type);
+//        MPI_Type_free (MPI_tree_type);
+//        MPI_Type_free (MPI_result_type);
+        MPI_Type_free (MPI_meta_type);
     } // END if (worktosend)
 
     /*--------------------------------------------------------- *
@@ -379,6 +403,7 @@ void decide(int rank, int nb_proc, tree_t * T, result_t *result){
             printf("depth: %d / score: %.2f / best_move : ", T->depth, 0.01 * result->score);
             print_pv(T, result);
 
+            /* TODO check if sending MPI_INT is okay there */
             if (DEFINITIVE(result->score)) {
                 for (int dest=1 ; dest<nb_proc ; dest++)
                     MPI_Send (NULL, 0, MPI_INT, dest, TAG_OVER, MPI_COMM_WORLD);
@@ -395,50 +420,56 @@ void decide(int rank, int nb_proc, tree_t * T, result_t *result){
 
 int slave_function() {
     MPI_Status status;
-    MPI_Datatype *MPI_tree_type, *MPI_result_type;
-    MPI_tree_type = MPI_tree_creator();
-    MPI_result_type = MPI_result_creator();
+//    MPI_Datatype *MPI_tree_type, *MPI_result_type;
+//    MPI_tree_type = MPI_tree_creator();
+//    MPI_result_type = MPI_result_creator();
+    MPI_Datatype *MPI_meta_type = MPI_meta_creator ();
     int tag, indexRecv;
     tree_t treeRecv;
     result_t resultRecv;
+    meta_t meta;
     const int dest = 0;
     /* Loop to receive work, execute it, and send it back */
     do {
-//        MPI_Probe (dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        /* Recv index and get tag */
-        MPI_Recv (&indexRecv, 1, MPI_INT, dest, MPI_ANY_TAG,
-                MPI_COMM_WORLD, &status);
+        MPI_Probe (dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+//        /* Recv index and get tag */
+//        MPI_Recv (&indexRecv, 1, MPI_INT, dest, MPI_ANY_TAG,
+//                MPI_COMM_WORLD, &status);
         tag = status.MPI_TAG;
-        //tag = TAG_CONTINUE;
+//        tag = TAG_CONTINUE;
 
         if(tag == TAG_CONTINUE) { /* More work to do */
-            /* Recv index */
+//            /* Recv index */
 //            MPI_Recv (&indexRecv, 1, MPI_INT, dest, tag,
 //                    MPI_COMM_WORLD, NULL);
-            /* Recv tree */
-            MPI_Recv (&treeRecv, 1, *MPI_tree_type, dest, tag,
-                    MPI_COMM_WORLD, NULL);
-            /* Recv result */
-            MPI_Recv (&resultRecv, 1, *MPI_result_type, dest, tag,
+//           /* Recv tree */
+//           MPI_Recv (&treeRecv, 1, *MPI_tree_type, dest, tag,
+//                   MPI_COMM_WORLD, NULL);
+//           /* Recv result */
+//           MPI_Recv (&resultRecv, 1, *MPI_result_type, dest, tag,
+//                   MPI_COMM_WORLD, NULL);
+            MPI_Recv (&meta, 1, *MPI_meta_type, dest, tag,
                     MPI_COMM_WORLD, NULL);
 
-            /* FUCK UP JUSTE HERE! segfault when calling evaluate */
             /* Main job */
-            evaluate (&treeRecv, &resultRecv);
+            evaluate (&meta.tree, &meta.result);
 
             /* Send response */
-            MPI_Send (&indexRecv, 1, MPI_INT, dest, TAG_ANS, MPI_COMM_WORLD);
-            MPI_Send (&treeRecv, 1, *MPI_tree_type, dest, TAG_ANS, MPI_COMM_WORLD);
-            MPI_Send (&resultRecv, 1, *MPI_result_type, dest, TAG_ANS, MPI_COMM_WORLD);
-            MPI_Send (&node_searched, 1, MPI_INT, dest, TAG_ANS, MPI_COMM_WORLD);
+//            MPI_Send (&indexRecv, 1, MPI_INT, dest, TAG_ANS, MPI_COMM_WORLD);
+//            MPI_Send (&treeRecv, 1, *MPI_tree_type, dest, TAG_ANS, MPI_COMM_WORLD);
+//            MPI_Send (&resultRecv, 1, *MPI_result_type, dest, TAG_ANS, MPI_COMM_WORLD);
+//            MPI_Send (&node_searched, 1, MPI_INT, dest, TAG_ANS, MPI_COMM_WORLD);
+            meta.nodes = node_searched;
+            MPI_Send (&meta, 1, *MPI_meta_type, dest, TAG_ANS, MPI_COMM_WORLD);
             node_searched = 0;
         }
         else {
             /* Recv to unlock slave */
-//            MPI_Recv (NULL, 0, MPI_INT, dest, tag,
-//                    MPI_COMM_WORLD, NULL);
-            MPI_Type_free (MPI_tree_type);
-            MPI_Type_free (MPI_result_type);
+            MPI_Recv (NULL, 0, *MPI_meta_type, dest, tag,
+                    MPI_COMM_WORLD, NULL);
+//            MPI_Type_free (MPI_tree_type);
+//            MPI_Type_free (MPI_result_type);
+            MPI_Type_free (MPI_meta_type);
             return (tag==TAG_STOP);
         }
     } while (tag == TAG_CONTINUE);
