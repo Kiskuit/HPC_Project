@@ -31,6 +31,7 @@
 #define TAG_STOP 0
 #define TAG_CONTINUE 1
 #define TAG_ANS 2
+#define TAG_OVER 3
 
 #define MAX(x,y) ((x> y) ?x:y)
 #define MIN(x,y) ((x<y) ?x:y)

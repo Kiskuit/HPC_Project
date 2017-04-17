@@ -29,6 +29,8 @@ MPI_Datatype *MPI_tree_creator ();
 
 MPI_Datatype *MPI_result_creator ();
 
+int slave_function();
+
 
 /* Function definition */
 /* TODO doc */
@@ -229,7 +231,7 @@ void pre_evaluate (tree_t *T, result_t *result) {
             MPI_Send (preEvalTrees[beg].result, 1, *MPI_result_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
             beg++;
         }
-        printf(">>>>>> First batch sent : %d\t%d\n", iDEBUGTEST, beg);
+        //printf(">>>>>> First batch sent : %d\t%d\n", iDEBUGTEST, beg);
 
         int slaveFinished = 0;
         /* While at least one slave hasnt finished work yet, send work */
@@ -237,7 +239,7 @@ void pre_evaluate (tree_t *T, result_t *result) {
             /* TODO : Use meta struct to make only one Recv! */
             /* Reception */
             MPI_Status status;
-            int indexRecv;
+            int indexRecv, tmp;
             /* Recv index */
             MPI_Recv (&indexRecv, 1, MPI_INT, MPI_ANY_SOURCE,
                     MPI_ANY_TAG, MPI_COMM_WORLD, &status);
@@ -249,6 +251,10 @@ void pre_evaluate (tree_t *T, result_t *result) {
             /* Recv result */
             MPI_Recv (preEvalTrees[indexRecv].result, 1, *MPI_result_type, source,
                     MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
+            /* Recv node_searched */
+            MPI_Recv (&tmp, 1, MPI_INT, MPI_ANY_SOURCE,
+                    MPI_ANY_TAG, MPI_COMM_WORLD, NULL);
+            node_searched += tmp;
             
             /* If there are more jobs to send */
             if (beg <sizeTree) {
@@ -261,13 +267,15 @@ void pre_evaluate (tree_t *T, result_t *result) {
                 /* Send result*/
                 MPI_Send (preEvalTrees[beg].result, 1, *MPI_result_type, dest, TAG_CONTINUE, MPI_COMM_WORLD);
                 beg++;
-                printf(">>>>>> batch sent : %d\t%d\n", iDEBUGTEST, beg);
+                //printf(">>>>>> batch sent : %d\t%d\n", iDEBUGTEST, beg);
             }
             else {
                 MPI_Send (NULL, 0, MPI_INT, dest, TAG_STOP, MPI_COMM_WORLD);
                 slaveFinished++;
             }
         }
+        MPI_Type_free (MPI_tree_type);
+        MPI_Type_free (MPI_result_type);
     } // END if (worktosend)
 
     /*--------------------------------------------------------- *
@@ -357,31 +365,89 @@ void evaluate(tree_t * T, result_t *result)
 }
 
 
-void decide(tree_t * T, result_t *result){
-    for (int depth = 1;; depth++) {
-        T->depth = depth;
-        T->height = 0;
-        T->alpha_start = T->alpha = -MAX_SCORE - 1;
-        T->beta = MAX_SCORE + 1;
+void decide(int rank, int nb_proc, tree_t * T, result_t *result){
+    if (rank==0) {
+        for (int depth = 1;; depth++) {
+            T->depth = depth;
+            T->height = 0;
+            T->alpha_start = T->alpha = -MAX_SCORE - 1;
+            T->beta = MAX_SCORE + 1;
 
-        printf("=====================================\n");
-        pre_evaluate(T, result);
-        // TODO REMOVE THAT WHEN NOT TESTING
-        //if (depth==2) break;
+            printf("=====================================\n");
+            pre_evaluate(T, result);
 
-        printf("depth: %d / score: %.2f / best_move : ", T->depth, 0.01 * result->score);
-        print_pv(T, result);
+            printf("depth: %d / score: %.2f / best_move : ", T->depth, 0.01 * result->score);
+            print_pv(T, result);
 
-        if (DEFINITIVE(result->score))
-            break;
+            if (DEFINITIVE(result->score)) {
+                for (int dest=1 ; dest<nb_proc ; dest++)
+                    MPI_Send (NULL, 0, MPI_INT, dest, TAG_OVER, MPI_COMM_WORLD);
+                break;
+            }
+        }
     }
+    else {
+        int isOver = TRUE;
+        while (isOver)
+            isOver = slave_function();
+    }
+}
+
+int slave_function() {
+    MPI_Status status;
+    MPI_Datatype *MPI_tree_type, *MPI_result_type;
+    MPI_tree_type = MPI_tree_creator();
+    MPI_result_type = MPI_result_creator();
+    int tag, indexRecv;
+    tree_t treeRecv;
+    result_t resultRecv;
+    const int dest = 0;
+    /* Loop to receive work, execute it, and send it back */
+    do {
+//        MPI_Probe (dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        /* Recv index and get tag */
+        MPI_Recv (&indexRecv, 1, MPI_INT, dest, MPI_ANY_TAG,
+                MPI_COMM_WORLD, &status);
+        tag = status.MPI_TAG;
+        //tag = TAG_CONTINUE;
+
+        if(tag == TAG_CONTINUE) { /* More work to do */
+            /* Recv index */
+//            MPI_Recv (&indexRecv, 1, MPI_INT, dest, tag,
+//                    MPI_COMM_WORLD, NULL);
+            /* Recv tree */
+            MPI_Recv (&treeRecv, 1, *MPI_tree_type, dest, tag,
+                    MPI_COMM_WORLD, NULL);
+            /* Recv result */
+            MPI_Recv (&resultRecv, 1, *MPI_result_type, dest, tag,
+                    MPI_COMM_WORLD, NULL);
+
+            /* FUCK UP JUSTE HERE! segfault when calling evaluate */
+            /* Main job */
+            evaluate (&treeRecv, &resultRecv);
+
+            /* Send response */
+            MPI_Send (&indexRecv, 1, MPI_INT, dest, TAG_ANS, MPI_COMM_WORLD);
+            MPI_Send (&treeRecv, 1, *MPI_tree_type, dest, TAG_ANS, MPI_COMM_WORLD);
+            MPI_Send (&resultRecv, 1, *MPI_result_type, dest, TAG_ANS, MPI_COMM_WORLD);
+            MPI_Send (&node_searched, 1, MPI_INT, dest, TAG_ANS, MPI_COMM_WORLD);
+        }
+        else {
+            /* Recv to unlock slave */
+//            MPI_Recv (NULL, 0, MPI_INT, dest, tag,
+//                    MPI_COMM_WORLD, NULL);
+            MPI_Type_free (MPI_tree_type);
+            MPI_Type_free (MPI_result_type);
+            return (tag==TAG_STOP);
+        }
+    } while (tag == TAG_CONTINUE);
 }
 
 int main(int argc, char **argv)
 {  
     tree_t root;
     result_t result;
-    int rank=0, comSize;
+    int rank, comSize;
     /* MPI Initialization */
     MPI_Init(NULL, NULL);
     MPI_Comm_size(MPI_COMM_WORLD, &comSize);
@@ -408,10 +474,12 @@ int main(int argc, char **argv)
 
         parse_FEN(argv[1], &root);
         print_position(&root);
+    }
 
+    /* Start computation */
+    decide(rank, comSize, &root, &result);
 
-        decide(&root, &result);
-
+    if (rank==0) {
         printf("\nDécision de la position: ");
         switch(result.score * (2*root.side - 1)) {
             case MAX_SCORE: printf("blanc gagne\n"); break;
@@ -425,59 +493,9 @@ int main(int argc, char **argv)
         if (TRANSPOSITION_TABLE)
             free_tt();
     }
-    else {
-    }
 
     /* MPI Finalization */
     MPI_Finalize();
     return 0;
-}
-
-void slave_function() {
-    MPI_Status status;
-    MPI_Datatype *MPI_tree_type, *MPI_result_type;
-    MPI_tree_type = MPI_tree_creator();
-    MPI_result_type = MPI_result_creator();
-    int tag, indexRecv;
-    tree_t treeRecv;
-    result_t resultRecv;
-    const int dest = 0;
-    /* Loop to receive work, execute it, and send it back */
-    do {
-        MPI_Probe (dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-//      MPI_Recv (&indexRecv, 1, MPI_INT, dest, MPI_ANY_TAG,
-//              MPI_COMM_WORLD, &status);
-        tag = status.MPI_TAG;
-        //tag = TAG_CONTINUE;
-
-        if(tag == TAG_CONTINUE) { /* More work to do */
-            /* Recv index */
-            MPI_Recv (&indexRecv, 1, MPI_INT, dest, tag,
-                    MPI_COMM_WORLD, NULL);
-            /* Recv tree */
-            MPI_Recv (&treeRecv, 1, *MPI_tree_type, dest, tag,
-                    MPI_COMM_WORLD, NULL);
-            /* Recv result */
-            MPI_Recv (&resultRecv, 1, *MPI_result_type, dest, tag,
-                    MPI_COMM_WORLD, NULL);
-
-            /* FUCK UP JUSTE HERE! segfault when calling evaluate */
-            /* Main job */
-            evaluate (&treeRecv, &resultRecv);
-
-            /* Send response */
-            MPI_Send (&indexRecv, 1, MPI_INT, dest, TAG_ANS, MPI_COMM_WORLD);
-            MPI_Send (&treeRecv, 1, *MPI_tree_type, dest, TAG_ANS, MPI_COMM_WORLD);
-            MPI_Send (&resultRecv, 1, *MPI_result_type, dest, TAG_ANS, MPI_COMM_WORLD);
-        }
-        else {
-            /* Recv to unlock slave */
-            printf("HERE");
-            MPI_Recv (NULL, 0, MPI_INT, dest, tag,
-                    MPI_COMM_WORLD, NULL);
-        }
-    } while (tag == TAG_CONTINUE);
-
-    return;
 }
 
