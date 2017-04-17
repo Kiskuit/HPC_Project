@@ -76,6 +76,7 @@ typedef struct {
 /* Metastructure that combines tree_t and result_t struct (plus few more things) */
 typedef struct meta_t {
     int index;
+    unsigned long nodes;
     tree_t tree;
     result_t result;
 } meta_t;

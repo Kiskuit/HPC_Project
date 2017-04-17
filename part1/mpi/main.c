@@ -53,6 +53,34 @@ MPI_Datatype *MPI_result_creator () {
 
     return MPI_result;
 }
+MPI_Datatype *MPI_meta_creator () {
+    /* Number of different blocks of types in struct */
+    const int nbTypes = 4;
+    /* Number of elements in each block in struct */
+    const int blockLengths[] = {1,1,1,1};
+    /* MPI types of each block in struct */
+    const MPI_Datatype *MPI_tree_type = MPI_tree_creator (),
+                        *MPI_result_type = MPI_result_creator ();
+    const MPI_Datatype types[] = {MPI_INT, MPI_UNSIGNED_LONG,
+                                    *MPI_tree_type, *MPI_result_type};
+    /* Blocks offsets in struct */
+    const MPI_Aint offsets[] = {offsetof (meta_t, index),
+                                offsetof (meta_t, nodes),
+                                offsetof (meta_t, tree),
+                                offsetof (meta_t, result)};
+
+    MPI_Datatype *MPI_meta;
+    if ( (MPI_meta = malloc(sizeof(MPI_Datatype))) == NULL) {
+        fprintf(stderr, "malloc error in MPI_tree_creator()\n");
+        exit(1);
+    }
+    MPI_Type_create_struct (nbTypes, blockLengths, offsets, types, MPI_meta);
+    MPI_Type_commit (MPI_meta);
+
+    return MPI_meta;
+    /* TODO check if we can MPI_Type_free tree_type et result_type */
+}
+    
 
 /* Master's core function :
  * -First : Perform breadth-first search until there are
@@ -61,8 +89,6 @@ MPI_Datatype *MPI_result_creator () {
  * -Third : Recombine all work done by slaves.
 */
 void pre_evaluate (tree_t *T, result_t *result) {
-    /* TODO handle node_searched in slave work
-     *      ----> kinda done, but does not work... */
     node_searched++;
 
     /* MPI vars */
