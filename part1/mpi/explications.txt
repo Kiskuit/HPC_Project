@@ -6,6 +6,13 @@ la comparaison des résultats n'est pas faite dans le meme ordre?
 J'ai pas vérifié. En tous cas, le nombre de noeuds visités est bon (au moins
 pour cet exemple), donc on a du positif.
 
+Il me reste un peu de code cleanup a faire, surtout pour ce qui concerne la
+gestion des esclaves, comment ils sont lancés et terminés, je trouve pas ça
+super propre.
+Je vais aussi utiliser la structure meta_t que j'ai créée (mais pas encore
+utilisée) pour m'arranger de ne faire qu'un seul envoi par taches (au lieu de
+3-4 pour l'instant) pour réduire le cout des communications.
+
 En ce qui concerne le code, voici des explications :
 * l 13-55 :
     Fonctions de créations des MPI_Datatype pour tree_t et result_t
