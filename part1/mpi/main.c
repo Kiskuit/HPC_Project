@@ -405,6 +405,7 @@ int slave_function() {
             MPI_Send (&treeRecv, 1, *MPI_tree_type, dest, TAG_ANS, MPI_COMM_WORLD);
             MPI_Send (&resultRecv, 1, *MPI_result_type, dest, TAG_ANS, MPI_COMM_WORLD);
             MPI_Send (&node_searched, 1, MPI_INT, dest, TAG_ANS, MPI_COMM_WORLD);
+            node_searched = 0;
         }
         else {
             /* Recv to unlock slave */
