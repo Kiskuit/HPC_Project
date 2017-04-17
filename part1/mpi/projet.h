@@ -73,13 +73,36 @@ typedef struct {
 } result_t;
 
 
+/* Metastructure that combines tree_t and result_t struct (plus few more things) */
 typedef struct meta_t {
     int index;
     tree_t tree;
     result_t result;
 } meta_t;
 
+/* Structure of the tree of the game */
+typedef struct recTree_t {
+    int parentId;
+    int move;
+    tree_t *tree;
+    result_t *result;
+} recTree_t;
 
+/********************************************
+ * Fonctions persos
+ *******************************************/
+/* Default evaluate function */
+void evaluate(tree_t * T, result_t *result);
+
+/* Master's function, evaluate the top of the tree only */
+void pre_evaluate (tree_t *T, result_t *result) ;
+
+/* Function to create our MPI_Datatypes */
+MPI_Datatype *MPI_tree_creator ();
+MPI_Datatype *MPI_result_creator ();
+
+/* Slaves's function, evaluate a branch of the tree, and communicate w/ master */
+int slave_function();
 
 /********************************************
  * Fonctions auxiliaires

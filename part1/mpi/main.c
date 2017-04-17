@@ -8,32 +8,8 @@
 /* Global Variables */
 unsigned long long int node_searched = 0;
 
-/* Structures
- * TODO move to projet.h?
-*/
-typedef struct recTree_t {
-    int parentId;
-    int move;
-    tree_t *tree;
-    result_t *result;
-} recTree_t;
-
-/* Prototypes
- * TODO move to projet.h?
-*/
-void evaluate(tree_t * T, result_t *result);
-
-void pre_evaluate (tree_t *T, result_t *result) ;
-
-MPI_Datatype *MPI_tree_creator ();
-
-MPI_Datatype *MPI_result_creator ();
-
-int slave_function();
-
-
 /* Function definition */
-/* TODO doc */
+/* Create the MPI_Datatype corresponding to the tree_t struct */
 MPI_Datatype *MPI_tree_creator () {
     /* Number of different blocks of types in struct */
     const int nbTypes = 3;
@@ -56,8 +32,7 @@ MPI_Datatype *MPI_tree_creator () {
 
     return MPI_tree;
 }
-
-/* TODO doc */
+/* Create the MPI_Datatype corresponding to the result struct */
 MPI_Datatype *MPI_result_creator () {
     /* Number of different blocks of types in struct */
     const int nbTypes = 1;
@@ -86,7 +61,8 @@ MPI_Datatype *MPI_result_creator () {
  * -Third : Recombine all work done by slaves.
 */
 void pre_evaluate (tree_t *T, result_t *result) {
-    /* TODO handle node_searched in slave work */
+    /* TODO handle node_searched in slave work
+     *      ----> kinda done, but does not work... */
     node_searched++;
 
     /* MPI vars */
@@ -143,7 +119,6 @@ void pre_evaluate (tree_t *T, result_t *result) {
 
     /* ----------------- Breadth-first search --------------- */
     while (nb_tasks < 10*nb_proc) {
-        // TODO get rid of nbContinue mechanics (just test if nb_tasks==0)
         int bound = sizeTree;
         nb_tasks = 0;
         /* For every node at this level */
@@ -195,7 +170,6 @@ void pre_evaluate (tree_t *T, result_t *result) {
         } // END FOR i
         
         if (nb_tasks == 0) {
-            // TODO raise a flag or smth?
             break;
         }
         /* Update beginning index */
