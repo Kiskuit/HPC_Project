@@ -8,67 +8,49 @@
 /* Global Variables */
 unsigned long long int node_searched = 0;
 
-/* Function definition */
-/* Create the MPI_Datatype corresponding to the tree_t struct */
-MPI_Datatype *MPI_tree_creator () {
+/* Create the MPI_Datatype corresponding to the meta_t struct */
+MPI_Datatype *MPI_meta_creator () {
+    /* Datatype for tree struct */
     /* Number of different blocks of types in struct */
-    const int nbTypes = 3;
+    const int nbTypes_tree = 3;
     /* Number of elements in each block in struct */
-    const int blockLengths[] = {3*128, 11, 1+MAX_DEPTH};
+    const int blockLengths_tree[] = {3*128, 11, 1+MAX_DEPTH};
     /* MPI types of each block in struct */
-    const MPI_Datatype types[] = {MPI_CHAR, MPI_INT, MPI_UNSIGNED_LONG};
+    const MPI_Datatype types_tree[] = {MPI_CHAR, MPI_INT, MPI_UNSIGNED_LONG};
     /* Blocks offsets in struct */
-    const MPI_Aint offsets[] = {offsetof (tree_t, pieces),
+    const MPI_Aint offsets_tree[] = {offsetof (tree_t, pieces),
                                 offsetof (tree_t, side),
                                 offsetof (tree_t, hash)};
-
     MPI_Datatype *MPI_tree;
     if ( (MPI_tree = malloc(sizeof(MPI_Datatype))) == NULL) {
         fprintf(stderr, "malloc error in MPI_tree_creator()\n");
         exit(1);
     }
-    MPI_Type_create_struct (nbTypes, blockLengths, offsets, types, MPI_tree);
+    MPI_Type_create_struct (nbTypes_tree, blockLengths_tree, offsets_tree, types_tree, MPI_tree);
     MPI_Type_commit (MPI_tree);
 
-    return MPI_tree;
-}
-/* Create the MPI_Datatype corresponding to the result struct */
-MPI_Datatype *MPI_result_creator () {
-    /* Number of different blocks of types in struct */
-    const int nbTypes = 1;
-    /* Number of elements in each block in struct */
-    const int blockLengths[] = {3+MAX_DEPTH};
-    /* MPI types of each block in struct */
-    const MPI_Datatype types[] = {MPI_INT};
-    /* Blocks offsets in struct */
-    const MPI_Aint offsets[] = {offsetof (result_t, score)};
-
+    /* Datatype for result struct */
+    const int nbTypes_res = 1;
+    const int blockLengths_res[] = {3+MAX_DEPTH};
+    const MPI_Datatype types_res[] = {MPI_INT};
+    const MPI_Aint offsets_res[] = {offsetof (result_t, score)};
     MPI_Datatype *MPI_result;
     if ( (MPI_result = malloc(sizeof(MPI_Datatype))) == NULL) {
         fprintf(stderr, "malloc error in MPI_tree_creator()\n");
         exit(1);
     }
-    MPI_Type_create_struct (nbTypes, blockLengths, offsets, types, MPI_result);
+    MPI_Type_create_struct (nbTypes_res, blockLengths_res, offsets_res, types_res, MPI_result);
     MPI_Type_commit (MPI_result);
 
-    return MPI_result;
-}
-MPI_Datatype *MPI_meta_creator () {
-    /* Number of different blocks of types in struct */
+    /* Datatype for meta struct */
     const int nbTypes = 4;
-    /* Number of elements in each block in struct */
     const int blockLengths[] = {1,1,1,1};
-    /* MPI types of each block in struct */
-    MPI_Datatype *MPI_tree_type = MPI_tree_creator (),
-                    *MPI_result_type = MPI_result_creator ();
     const MPI_Datatype types[] = {MPI_INT, MPI_UNSIGNED_LONG,
-                                    *MPI_tree_type, *MPI_result_type};
-    /* Blocks offsets in struct */
+                                    *MPI_tree, *MPI_result};
     const MPI_Aint offsets[] = {offsetof (meta_t, index),
                                 offsetof (meta_t, nodes),
                                 offsetof (meta_t, tree),
                                 offsetof (meta_t, result)};
-
     MPI_Datatype *MPI_meta;
     if ( (MPI_meta = malloc(sizeof(MPI_Datatype))) == NULL) {
         fprintf(stderr, "malloc error in MPI_tree_creator()\n");
@@ -77,8 +59,8 @@ MPI_Datatype *MPI_meta_creator () {
     MPI_Type_create_struct (nbTypes, blockLengths, offsets, types, MPI_meta);
     MPI_Type_commit (MPI_meta);
 
-    MPI_Type_free (MPI_tree_type);
-    MPI_Type_free (MPI_result_type);
+    MPI_Type_free (MPI_tree);
+    MPI_Type_free (MPI_result);
 
     return MPI_meta;
 }
@@ -288,6 +270,7 @@ void pre_evaluate (tree_t *T, result_t *result) {
             parent.result->pv_length = task.result->pv_length+1;
             memcpy(parent.result->PV+1, task.result->PV,
                     task.result->pv_length*sizeof(int));
+            parent.result->PV[0] = task.move;
         }
         parent.tree->alpha = MAX(parent.tree->alpha, taskScore);
     }
