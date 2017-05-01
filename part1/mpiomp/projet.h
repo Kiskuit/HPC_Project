@@ -93,10 +93,14 @@ typedef struct recTree_t {
  * Fonctions persos
  *******************************************/
 /* Default evaluate function */
-void evaluate(tree_t * T, result_t *result);
+void evaluate(tree_t * T, result_t *result, int prof);
 
 /* Master's function, evaluate the top of the tree only */
 void pre_evaluate (tree_t *T, result_t *result) ;
+
+/* Function to create our MPI_Datatypes */
+MPI_Datatype *MPI_tree_creator ();
+MPI_Datatype *MPI_result_creator ();
 
 /* Slaves's function, evaluate a branch of the tree, and communicate w/ master */
 int slave_function();
