@@ -1,6 +1,6 @@
 target: decide
 
-CFLAGS=-O3 -std=c99 -g
+CFLAGS=-O3 -std=c99 -g -fdiagnostics-color=auto
 CC=mpicc
 
 main.o: main.c projet.h
