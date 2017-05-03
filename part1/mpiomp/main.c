@@ -1,5 +1,6 @@
 #include "projet.h"
 #include <unistd.h>
+#include <omp.h>
 
 /* 2017-02-23 : version 1.0 */
 #define FALSE 0
@@ -320,6 +321,7 @@ void pre_evaluate (tree_t *T, result_t *result) {
             parent.result->pv_length = task.result->pv_length+1;
             memcpy(parent.result->PV+1, task.result->PV,
                     task.result->pv_length*sizeof(int));
+            parent.result->PV[0] = task.move;
         }
         parent.tree->alpha = MAX(parent.tree->alpha, taskScore);
     }
