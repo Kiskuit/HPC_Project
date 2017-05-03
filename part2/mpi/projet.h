@@ -14,7 +14,7 @@
  * Faire passer TRANSPOSITION_TABLE à 1 pour un véritable challenge !
  ********************************************************/
 
-#define ALPHA_BETA_PRUNING  0
+#define ALPHA_BETA_PRUNING  1
 #define TRANSPOSITION_TABLE 0
 
 /*******************************************************
@@ -33,6 +33,10 @@
 #define TAG_ANS 2
 #define TAG_OVER 3
 
+#define FALSE 0
+#define TRUE 1
+
+
 #define MAX(x,y) ((x> y) ?x:y)
 #define MIN(x,y) ((x<y) ?x:y)
 
@@ -42,6 +46,7 @@ typedef int move_t;
 
 typedef char board_t[128];
 
+typedef int flag_t;
 
 /* répresentation d'une position */
 typedef struct tree_t {
@@ -85,6 +90,7 @@ typedef struct meta_t {
 typedef struct recTree_t {
     int parentId;
     int move;
+    flag_t pruned;
     tree_t *tree;
     result_t *result;
 } recTree_t;

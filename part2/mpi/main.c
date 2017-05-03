@@ -2,9 +2,6 @@
 #include <unistd.h>
 
 /* 2017-02-23 : version 1.0 */
-#define FALSE 0
-#define TRUE 1
-
 /* Global Variables */
 unsigned long long int node_searched = 0;
 
@@ -275,6 +272,118 @@ void pre_evaluate (tree_t *T, result_t *result) {
         parent.tree->alpha = MAX(parent.tree->alpha, taskScore);
     }
 }
+
+/* TODO set pruned flag to FALSE everywhere (by default) */
+void master (tree_t *T, result_t *result) {
+    /* The path to the leftmost leaf is stored in first in the tree */
+    int beg, sizeTree = T->depth+1;
+    recTree_t *masterTree;
+    if ( (masterTree=malloc(sizeTree * sizeof(recTree_t))) == NULL) {
+        fprintf(stderr,"malloc error in master()\n");
+        exit(1);
+    }
+    masterTree[0].parentId = -1;
+    masterTree[0].tree = T;
+    masterTree[0].result = result;
+
+    /* Array to store moves */
+    int n_moves[sizeTree];
+    move_t moves[sizeTree][MAX_MOVES];
+    /* ------------------------------------------------------------------- *
+     * --------------Depth-first search to the lefmost leaf -------------- *
+     * ------------------------------------------------------------------- */
+    /* Play all moves on left branch */
+    for (int i=0 ; i<sizeTree ; i++) {
+        node_searched++;
+        tree_t *tmpTree = masterTree[i].tree;
+        result_t *tmpResult = masterTree[i].result;
+        masterTree[i].parentId = i-1
+
+        tmpResult->score = MAX_SCORE - 1;
+        tmpResult->pv_length = 0;
+        /* if current state ends of the game */
+        if (test_draw_or_victory(tmpTree, tmpResult)) {
+            sizeTree = i+1;
+            break;
+        }
+        /* or if at max depth */
+        if (i == sizeTree-1) {
+            tmpResult->score = (2 * tmpTree->side - 1) * heuristic_evaluation(tmpTree);
+            break;
+        }
+        /* Last iteration should never get past this point */
+        compute_attack_squares (tmpTree);
+        n_moves[i] = generate_legal_moves (tmpTree, moves[i]);
+        if (n_moves[i] == 0) {
+            tmpResult->score = check(tmpTree)?-MAX_SCORE:CERTAIN_DRAW;
+            sizeTree = i+1;
+            break;
+        }
+        sort_moves (tmpTree, n_moves[i], moves[i]);
+        masterTree[i+1].move = moves[i][0];
+        masterTree[i+1].tree = malloc (sizeof(tree_t));
+        masterTree[i+1].result = malloc (sizeof(result_t));
+        if (!masterTree[i+1].tree || !masterTree[i+1].result) {
+            fprintf(stderr, "malloc error in master()\n");
+            exit(1);
+        }
+        // Play the best move
+        play_move (tmpTree, moves[i][0], masterTree[i+1].tree);
+    }
+    /* Update parents on left branch */
+    for (int i=sizeTree-1 ; i>0 ; i--) {
+        tree_t *parentT = masterTree[i-1].tree, *childT = masterTree[i].tree;
+        result_t *parentR = masterTree[i-1].result, *childR = masterTree[i-1].result;
+        /* Check if we actually need an if here?
+         * Since this is the only move played, it has to be beter, right? */
+        if (childR->score > parentR->score) {
+            parentR->score = childR->score;
+            parentR->best_move = masterTree[i].move;
+            parentR->pv_length = childR->pv_length + 1;
+            memcpy (parentR->PV+1, childR->PV, childR->pv_length * sizeof(int));
+            parentR->PV[0] = masterTree[i].move;
+        }
+        /* Pruning happens here */
+        if (childR->score >= parentT->beta) {
+            n_moves[i-1] = 1;
+            masterTree[i-1].pruned = TRUE;
+        }
+        parentT->alpha = MAX(parentT->alpha, childR->score);
+    }
+
+    /* ------------------------------------------------------------------------------*
+     * Once the first branched has been searched through, start breadth-first search *
+     * ------------------------------------------------------------------------------*/
+    beg = sizeTree;
+    /* MPI vars */
+    int nb_proc;
+    MPI_Comm_size (MPI_COMM_WORLD, &nb_proc);
+
+    // The best move is already in the array
+    sizeTree += n_moves[0] - 1; 
+    if ( (masterTree=realloc(masterTree, sizeTree*sizeof(recTree_t))) == NULL) {
+        fprintf(stderr, "realloc error in master()\n");
+        exit(1);
+    }
+    
+    /* Setup first level */
+    for (int i=beg ; i<sizeTree ; i++) {
+        masterTree[i].parentId = 0;
+        // The first move is already in the array
+        masterTree[i].move = moves[0][i-beg+1];
+        masterTree[i].tree = malloc(sizeof(tree_t));
+        masterTree[i].result = malloc(sizeof(result_t));
+        if (!masterTree[i].tree || !masterTree[i].result) {
+            fprintf(stderr, "malloc error in master()\n");
+            exit(1);
+        }
+        play_move(T, masterTree[i].move, masterTree[i].tree);
+    }
+}
+
+
+
+
 
 // Only slaves call evaluate
 void evaluate(tree_t * T, result_t *result)
