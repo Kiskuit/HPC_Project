@@ -2,7 +2,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 
-#define RATIO 20
+#define RATIO 10
 /* TODO estimates how many time we have pruning with a counter in 
  * original. Adjust ratio according to result, speak about it in report */
 
