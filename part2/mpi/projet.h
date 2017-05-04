@@ -102,7 +102,7 @@ typedef struct recTree_t {
 void evaluate(tree_t * T, result_t *result);
 
 /* Master's function, evaluate the top of the tree only */
-void pre_evaluate (tree_t *T, result_t *result) ;
+void master (tree_t *T, result_t *result) ;
 
 /* Slaves's function, evaluate a branch of the tree, and communicate w/ master */
 int slave_function();
