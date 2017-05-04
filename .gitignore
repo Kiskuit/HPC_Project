@@ -45,3 +45,6 @@ hostfile
 *.log
 *.nav
 *.toc
+
+# Original files (so we dont have to track changes on defines)
+./original/*
