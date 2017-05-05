@@ -49,9 +49,10 @@ void evaluate(tree_t * T, result_t *result, int prof)
     /* évalue récursivement les positions accessibles à partir d'ici */
     if(prof < OMP_MAX_PROF) {
         int stop = 0;
-//#pragma omp parallel for
+#pragma omp parallel for
         for (int i=0 ; i<n_moves ; i++) {
-#pragma omp task firstprivate(i) shared(result, stop)
+            printf("%d", omp_get_num_threads());
+//#pragma omp task firstprivate(i) shared(result, stop)
             {
             int tstop = 0;
 #pragma omp critical(stop)
@@ -89,7 +90,7 @@ void evaluate(tree_t * T, result_t *result, int prof)
             }
             }
         }
-#pragma omp taskwait
+//#pragma omp taskwait
     }
     if (prof >= OMP_MAX_PROF) { 
         for (int i=0 ; i<n_moves ; i++) {
