@@ -40,7 +40,7 @@
 %	DOCUMENT INFORMATION
 %----------------------------------------------------------------------------------------
 
-\title{Parallélisation d'un solveur d'échecs \\ Comparaison d'implémentations \\ HPC} % Title
+\title{Décision de finales d'échecs\\ Comparaison d'implémentations \\ HPC} % Title
 
 \author{Mathis \textsc{Caristan} \& Alexandre \textsc{Fernandez}} % Author name
 
@@ -82,14 +82,19 @@ Ces valeurs serviront d'étalon pour mesurer les performances des parallélisati
 \begin{table} \begin{center}
     \begin{tabular}{|c|c|c||c|}
     \hline 
-    \textbf{Optimisation}  & \textbf{Machine(s)} & \textbf{Entrée} & \textbf{Temps}\\ \hline
-    \og Naïf \fg    &   gpu-3       &   ???     &   ???\\ \hline
-    \og Naïf \fg    &   ???         &   ???     &   ???\\ \hline
-    Alpha-bêta      &   gpu-3       &   ???     &   ???\\ \hline
-    Alpha-bêta      &   ???         &   ???     &   ???\\ \hline
+    \textbf{Optimisation}  & \textbf{Machine(s)}        & \textbf{Entrée}   & \textbf{Temps}\\ \hline
+    \og Naïf \fg    &   gpu-3                           &   "7K//k1P/7p b"          &   ???\\ \hline
+    \og Naïf \fg    &   14-15-401-05 à 14-15-401-12     &   "7K//k1P/7p b"          &   ???\\ \hline
+    Alpha-bêta      &   gpu-3                           &   "/5p/4p/4P/4KP///k w"   &   ???\\ \hline
+    Alpha-bêta      &   14-15-401-05 à 14-15-401-12     &   "/5p/4p/4P/4KP///k w"   &   ???\\ \hline
     \end{tabular} 
     \caption{\label{tab:seq}Temps d'éxecution du programme séquentiel pour différents paramètres.}
 \end{center} \end{table}
+\'Etant donné les temps d'exécution de ces instances, les temps d'exécution n'ont été mesurés
+qu'une seule fois, et en conséquence, sont sujets à une incertitude de mesure liée à
+la possible utilisation des machines par d'autre utilisateurs pendant la mesure.
+Néanmoins, on observe qu'ils semblent en accord avec les valeurs prévues dans les les 
+fichiers \texttt{positions\_v1.txt} et \texttt{positions\_v2.txt}.
 
 
 \section{Parallélisation du code naïf}
