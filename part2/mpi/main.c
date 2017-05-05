@@ -75,311 +75,10 @@ MPI_Datatype *MPI_meta_creator () {
  * -Third : Recombine all work done by slaves.
 */
 /* TODO set pruned flag to FALSE everywhere (by default) */
-void master (tree_t *T, result_t *result) {
-    /* The path to the leftmost leaf is stored in first in the tree */
-    int beg, sizeTree = T->depth+1;
-    recTree_t *masterTree;
-    if ( (masterTree=malloc(sizeTree * sizeof(recTree_t))) == NULL) {
-        fprintf(stderr,"malloc error in master()\n");
-        exit(1);
-    }
-    masterTree[0].tree = T;
-    masterTree[0].result = result;
-    masterTree[0].pruned = FALSE;
-
-    /* Array to store moves */
-    /* TODO freeeeee! */
-    int *n_moves = calloc(sizeTree,sizeof(int));
-    if (!n_moves) {
-        fprintf(stderr, "malloc error in master()\n");
-        exit(1);
-    }
-    move_t **moves = calloc(sizeTree,sizeof(int*));
-    for (int i=0; i<sizeTree ; i++)
-        if ( (moves[i]=calloc(MAX_MOVES,sizeof(int))) == NULL) {
-            fprintf(stderr, "calloc error in master\n");
-            exit(1);
-        }
-    /* ------------------------------------------------------------------- *
-     * --------------Depth-first search to the lefmost leaf -------------- *
-     * ------------------------------------------------------------------- */
-    /* Play all moves on left branch */
-    for (int i=0 ; i<sizeTree ; i++) {
-        node_searched++;
-        tree_t *tmpTree = masterTree[i].tree;
-        result_t *tmpResult = masterTree[i].result;
-        masterTree[i].parentId = i-1;
-
-        tmpResult->score = -MAX_SCORE - 1;
-        tmpResult->pv_length = 0;
-        /* if current state ends of the game */
-        if (test_draw_or_victory(tmpTree, tmpResult)) {
-            sizeTree = i+1;
-            break;
-        }
-        /* or if at max depth */
-        if (i == sizeTree-1) {
-            tmpResult->score = (2 * tmpTree->side - 1) * heuristic_evaluation(tmpTree);
-            break;
-        }
-        /* Last iteration should never get past this point */
-        compute_attack_squares (tmpTree);
-        n_moves[i] = generate_legal_moves (tmpTree, moves[i]);
-        if (n_moves[i] == 0) {
-            tmpResult->score = check(tmpTree)?-MAX_SCORE:CERTAIN_DRAW;
-            sizeTree = i+1;
-            break;
-        }
-        sort_moves (tmpTree, n_moves[i], moves[i]);
-        masterTree[i+1].move = moves[i][0];
-        masterTree[i+1].tree = malloc (sizeof(tree_t));
-        masterTree[i+1].result = malloc (sizeof(result_t));
-        masterTree[i+1].pruned = FALSE;
-        if (!masterTree[i+1].tree || !masterTree[i+1].result) {
-            fprintf(stderr, "malloc error in master()\n");
-            exit(1);
-        }
-        // Play the best move
-        play_move (tmpTree, moves[i][0], masterTree[i+1].tree);
-    }
-    /* Update parents on left branch */
-    for (int i=sizeTree-1 ; i>0 ; i--) {
-        tree_t *parentT = masterTree[i-1].tree, *childT = masterTree[i].tree;
-        result_t *parentR = masterTree[i-1].result, *childR = masterTree[i-1].result;
-        /* TODO Check if we actually need an if here?
-         * Since this is the only move played, it has to be beter, right? */
-        if (childR->score > parentR->score) {
-            parentR->score = childR->score;
-            parentR->best_move = masterTree[i].move;
-            parentR->pv_length = childR->pv_length + 1;
-            memcpy (parentR->PV+1, childR->PV, childR->pv_length * sizeof(int));
-            parentR->PV[0] = masterTree[i].move;
-        }
-        /* Pruning happens here */
-        if (childR->score >= parentT->beta) {
-            n_moves[i-1] = 1;
-            masterTree[i-1].pruned = TRUE;
-        }
-        parentT->alpha = MAX(parentT->alpha, childR->score);
-    }
-
-    /* ------------------------------------------------------------------------------*
-     * Once the first branched has been searched through, start breadth-first search *
-     * ------------------------------------------------------------------------------*/
-    beg = sizeTree;
-    /* MPI vars */
-    int nb_proc;
-    MPI_Comm_size (MPI_COMM_WORLD, &nb_proc);
-
-    // The first move is already in the array
-    sizeTree += n_moves[0] - 1; 
-    if ( (masterTree=realloc(masterTree, sizeTree*sizeof(recTree_t))) == NULL) {
-        fprintf(stderr, "realloc error in master()\n");
-        exit(1);
-    }
-    
-    /* Setup first level */
-    for (int i=beg ; i<sizeTree ; i++) {
-        masterTree[i].parentId = 0;
-        // The first move is already in the array
-        masterTree[i].move = moves[0][i-beg+1];
-        masterTree[i].pruned = FALSE;
-        masterTree[i].tree = malloc(sizeof(tree_t));
-        masterTree[i].result = malloc(sizeof(result_t));
-        if (!masterTree[i].tree || !masterTree[i].result) {
-            fprintf(stderr, "malloc error in master()\n");
-            exit(1);
-        }
-        play_move(T, masterTree[i].move, masterTree[i].tree);
-    }
-    /* --------------------Breadth-first search--------------------------------*/
-    int nb_tasks = 0, depth = 1;
-    while (nb_tasks < RATIO*nb_proc) {
-        int bound = sizeTree, lower;
-        nb_tasks = 0;
-
-        /* Leftmost branch of that level */
-        /* TODO Do i need to check for pruning? */
-        if (n_moves[depth] != 0 && !masterTree[depth].pruned) {
-            lower = sizeTree;
-            sizeTree += n_moves[depth] - 1;
-            nb_tasks += n_moves[depth] - 1;
-            /* Extend tree */
-            if ( (masterTree = realloc (masterTree, sizeTree*sizeof(recTree_t))) == NULL) {
-                fprintf(stderr, "realloc error in master()\n");
-                exit(1);
-            }
-            for (int i=lower ; i<sizeTree ; i++) {
-                masterTree[i].parentId = depth;
-                masterTree[i].move = moves[depth][i-lower+1];
-                masterTree[i].pruned = FALSE;
-                masterTree[i].tree = malloc(sizeof(tree_t));
-                masterTree[i].result = malloc(sizeof(result_t));
-                if (!masterTree[i].tree || !masterTree[i].result) {
-                    fprintf(stderr, "malloc error in master()\n");
-                    exit(1);
-                }
-                play_move (masterTree[depth].tree, masterTree[i].move, masterTree[i].tree);
-            }
-        }
-
-        /* Other branches */
-        for (int i=beg ; i<bound ; i++) {
-            node_searched++;
-            tree_t *tmpTree = masterTree[i].tree;
-            result_t *tmpResult = masterTree[i].result;
-
-            tmpResult->score = -MAX_SCORE-1;
-            tmpResult->pv_length = 0;
-            if (test_draw_or_victory (tmpTree, tmpResult)) {
-                continue; /* TODO check that 
-                           * This modiy the score, and must be taken into account
-                           * when "recombining" */
-            }
-            if (tmpTree->depth == 0) {
-                tmpResult->score = (2*tmpTree->side-1) * heuristic_evaluation(tmpTree);
-                continue; /* TODO check that 
-                           * This modiy the score, and must be taken into account
-                           * when "recombining" */
-            }
-            compute_attack_squares (tmpTree);
-            n_moves[0] = generate_legal_moves (tmpTree, moves[0]);
-            if (n_moves[0] == 0) {
-                tmpResult->score = check(tmpTree)? -MAX_SCORE : CERTAIN_DRAW;
-                continue; /* TODO check that 
-                           * This modiy the score, and must be taken into account
-                           * when "recombining" */
-            }
-            sort_moves (tmpTree, n_moves[0], moves[0]);
-
-            lower = sizeTree;
-            sizeTree += n_moves[0];
-            nb_tasks += n_moves[0];
-            /* Extend tree */
-            if ( (masterTree = realloc (masterTree, sizeTree*sizeof(recTree_t))) == NULL) {
-                fprintf(stderr, "realloc error in master()\n");
-                exit(1);
-            }
-            for (int j=lower ; j<sizeTree ; j++) {
-                masterTree[j].parentId = i;
-                masterTree[j].move = moves[0][j-lower];
-                masterTree[j].pruned = FALSE;
-                masterTree[j].tree = malloc(sizeof(tree_t));
-                masterTree[j].result = malloc(sizeof(result_t));
-                if (!masterTree[j].tree || !masterTree[j].result) {
-                    fprintf(stderr, "malloc error in master()\n");
-                    exit(1);
-                }
-                play_move (tmpTree, masterTree[j].move, masterTree[j].tree);
-            }
-        } // END for i
-
-        if (nb_tasks == 0) break;
-        beg = bound;
-        depth++;
-    }
-    printf("Nb tasks : %d\nsizeTree : %d\n",nb_tasks, sizeTree);
-    /* --------------TEST (not parallel) -------------------*/
-    //   for (int i=beg ; i<sizeTree ; i++) {
-    //       evaluate (masterTree[i].tree, masterTree[i].result);
-    //   }
-
-    /* Distribute work if there is some */
-    if (nb_tasks != 0) {
-        MPI_Datatype *MPI_meta_type = MPI_meta_creator();
-
-        for (int dest=1 ; dest<nb_proc ; dest++) {
-            meta_t metaSend;
-            metaSend.index = beg;
-            metaSend.nodes = 0;
-            metaSend.tree = *masterTree[beg].tree;
-            metaSend.result = *masterTree[beg].result;
-            /* TODO can we use Isend here? */
-            MPI_Send (&metaSend, 1, *MPI_meta_type, dest, TAG_CONTINUE,
-                    MPI_COMM_WORLD);
-            beg++;
-        }
-
-        int slaveFinished = 0;
-        while (slaveFinished < nb_proc - 1) {
-            MPI_Status status;
-            meta_t metaRecv;
-            MPI_Recv (&metaRecv, 1, *MPI_meta_type, MPI_ANY_SOURCE,
-                    MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-            int dest = status.MPI_SOURCE;
-
-            *masterTree[metaRecv.index].tree = metaRecv.tree;
-            *masterTree[metaRecv.index].result = metaRecv.result;
-            node_searched += metaRecv.nodes;
-
-            recTree_t *child = &masterTree[metaRecv.index];
-            recTree_t *parent = &masterTree[child->parentId];
-            int childScore = -child->result->score;
-
-            /* Actualize tree state according to last recv */
-            if (childScore > parent->result->score) {
-                parent->result->score = childScore;
-                parent->result->best_move = child->move;
-                parent->result->pv_length = child->result->pv_length+1;
-                memcpy (parent->result->PV+1, child->result->PV,
-                        child->result->pv_length*sizeof(int));
-                parent->result->PV[0] = child->move;
-            }
-            if (child->result->score >= parent->tree->beta) {
-                parent->pruned = TRUE;
-            }
-            parent->tree->alpha = MAX(parent->tree->alpha, childScore);
-
-            /* Do not send tasks thas have been pruned */
-            while (TRUE) {
-                int parentId = masterTree[beg].parentId;
-                if (masterTree[parentId].pruned == TRUE) {
-                    beg++;
-                    continue;
-                }
-                if (beg < sizeTree) {
-                    metaRecv.index = beg;
-                    metaRecv.nodes = 0;
-                    metaRecv.tree = *masterTree[beg].tree;
-                    metaRecv.result = *masterTree[beg].result;
-                    /* TODO use Isend? */
-                    MPI_Send (&metaRecv, 1, *MPI_meta_type, dest,
-                            TAG_CONTINUE, MPI_COMM_WORLD);
-                    beg++;
-                    break;
-                }
-                else {
-                    MPI_Send (NULL, 0, *MPI_meta_type, dest, TAG_STOP, MPI_COMM_WORLD);
-                    slaveFinished++;
-                    break;
-                }
-            } // END while(TRUE)
-        }
-        MPI_Type_free (MPI_meta_type);
-    } // END if (worktosend)
-
-    /* ------------------- Recombine (move earlier?) ------------------ */
-    for (int i=sizeTree-1 ; i>0 ; i--) {
-        /* To shorten and clarify expressions */
-        recTree_t task = masterTree[i];
-        recTree_t parent = masterTree[task.parentId];
-        int taskScore = -task.result->score;
-
-        if (taskScore > parent.result->score) {
-            parent.result->score = taskScore;
-            parent.result->best_move = task.move;
-            parent.result->pv_length = task.result->pv_length+1;
-            memcpy(parent.result->PV+1, task.result->PV,
-                    task.result->pv_length*sizeof(int));
-            parent.result->PV[0] = task.move;
-        }
-        parent.tree->alpha = MAX(parent.tree->alpha, taskScore);
-    }
-
-}
 
 void alpha (tree_t *T, result_t *result) {
-    int beg, sizeTree = T->depth+1;
+    // Leftmost branch is first stored in the tree
+    int beg, sizeTree = T->depth+1, branchSize = T->depth+1;
     recTree_t *masterTree;
     if ( (masterTree=malloc(sizeTree * sizeof(recTree_t))) == NULL) {
         fprintf(stderr, "malloc error in alpha()\n");
@@ -389,30 +88,35 @@ void alpha (tree_t *T, result_t *result) {
     masterTree[0].result = result;
     masterTree[0].pruned = FALSE;
 
+    // Array to store moves
     int *n_moves = calloc (sizeTree, sizeof(int));
     move_t **moves = calloc (sizeTree, sizeof(int*));
     if (!n_moves || !moves) {
         fprintf (stderr, "calloc error in alpha()\n");
         exit(1);
     }
-    for (int i=0 ; i<sizeTree ; i++) {
+    for (int i=0 ; i<sizeTree ; i++) 
         if ( (moves[i]=calloc(MAX_MOVES,sizeof(int))) == NULL) {
             fprintf(stderr, "calloc error in alpha()\n");
             exit(1);
         }
-    }
 
 
+    /* ------------------------------------------------------------ *
+     * ---------- Follows the left branch to the bottom ----------- *
+     * ------------------------------------------------------------ */
     for (int i=0 ; i<sizeTree ; i++) {
         node_searched++;
-        tree_t tmpTree = masterTree[i].tree;
-        result_t tmpResult = masterTree[i].result;
+        tree_t *tmpTree = masterTree[i].tree;
+        result_t *tmpResult = masterTree[i].result;
+
         masterTree[i].parentId = i-1;
 
+        /* ----- Equivalent of evaluate ----- */
         tmpResult->score = -MAX_SCORE - 1;
         tmpResult->pv_length = 0;
         if (test_draw_or_victory (tmpTree, tmpResult)) {
-            sizeTree = i+1; /* TODO check that isnt'it just 'i' */
+            branchSize = sizeTree = i+1; /* TODO check that isnt'it just 'i' */
             break;
         }
         if (i==sizeTree-1) {
@@ -423,7 +127,7 @@ void alpha (tree_t *T, result_t *result) {
         n_moves[i] = generate_legal_moves (tmpTree, moves[i]);
         if (n_moves[i]==0) {
             tmpResult->score = check(tmpTree)?-MAX_SCORE:CERTAIN_DRAW;
-            sizeTree = i+1; /* TODO Same above */
+            branchSize = sizeTree = i+1; /* TODO Same above */
             break;
         }
         sort_moves (tmpTree, n_moves[i], mvoes[i]);
@@ -436,26 +140,164 @@ void alpha (tree_t *T, result_t *result) {
             exit(1);
         }
         play_move (tmpTree, moves[i][0], masterTree[i+1].tree);
+    } // END for (sizeTree)
+
+    // Analyze leftmost leaf
+    // TODO simplify notations!
+    if (masterTree[sizeTree-1].result->score > masterTree[sizeTree-2].result->score) {
+        masterTree[sizeTree-2].result->score = masterTree[sizeTree-1].result->score;
+        masterTree[sizeTree-2].result->best_move = masterTree[sizeTree-1].move;
+        masterTree[sizeTree-2].result->pv_length = masterTree[sizeTree-1].result->pv_length+1;
+        memcpy (masterTree[sizeTree-2].result->PV+1, masterTree[sizeTree-1].result->PV,
+                masterTree[sizeTree-1].result->pv_length * sizeof(int));
+        masterTree[size-2].result->PV[0] = masterTree[sizeTree-1].move;
+    }
+    if (masterTree[siezTree-1].result->score > masterTree[sizeTree-2].tree->beta) {
+        n_moves[sizeTree-2] = 1;
+        masterTree[sizeTree-2].pruned = TRUE;
     }
 
-    for (int i =sizeTree-1 ; i>0 ; i--) {
-        tree_t *parentT = masterTree[i-1].tree, *childT = masterTree[i].tree;
-        result_t *parentR = masterTree[i-1].result, *childR = masterTree[i].tree;
-        if (childR->score > parentR->score) {
-            parentR->score = childR->score;
-            parentR->best_move = masterTree[i].move;
-            parentR->pv_length = childR->pv_length + 1;
-            memcpy (parentR->PV+1, childR->PV, childR->pv_length * sizeof(int));
-            parentR->PV[0] = masterTree[i].move;
+    /* ------------------------------------------------------------ *
+     * ----- Go up the tree, create task, and distribute work ----- *
+     * ------------------------------------------------------------ */
+    beg = sizeTree;
+    for (int i=sizeTree-2 ; i>0 ; i--) {
+        // TODO change to pointer to save the copy
+        rectTree_t child = masterTree[i], parent = masterTree[i-1];
+        int childScore = -child.result->score;
+        // TODO check with and without the if
+        if (childScore > parent.result->score) {
+            parent.result->score = childScore;
+            parent.result->best_move = child.move;
+            parent.result->pv_length = child.result->pv_length + 1;
+            memcpy (parent.result->PV+1, child.result->PV,
+                    child.result->pv_length * sizeof(int));
+            parent.result->PV[0] = child.move;
         }
 
+        // Prunning
         if (childR->score >= parentT->beta) {
-            n_moves[i-1] = 1;
+            n_moves[i-1] = 1; // TODO remove this?
             masterTree[i-1].pruned = TRUE;
         }
-        else {
-            /* DO PARALLEL THINGY HERE! */
+        // If it has not been pruned...
+        if (!masterTree[i].pruned) {
+            int lower = sizeTree;
+            sizeTree += n_moves[i] - 1;
+            nb_tasks += n_moves[i] - 1;
+            if ( (masterTree = realloc(masterTree, sizeTree*sizeof(recTree_t))) == NULL) {
+                fprintf(stderr, "realloc error in alpha()\n");
+                exit(1);
+            }
+            // ... Add every child but the first to the taskslist
+            for (int j=lower ; j<sizeTree ; j++) {
+                masterTree[j].parentId = i;
+                masterTree[j].move = moves[j-lower+1];
+                masterTree[j].tree = malloc (sizeof(tree_t));
+                masterTree[j].result = malloc (sizeof(result_t));
+                if (!masterTree[j].tree || !masterTree[j].result) {
+                    fprintf(stderr, "malloc error in alpha()\n");
+                    exit(1);
+                }
+                play_move(masterTree[i].tree, masterTree[j].move, masterTree[j].tree);
+            }
         }
+        // If enough tasks, distribute tasks
+        if (nb_tasks >= RATIO*nb_proc) {
+            distribute_work (beg, sizeTree, masterTree);
+            nb_tasks = 0;
+            beg = sizeTree;
+        }
+    }
+    /* -------------------------------------------- *
+     * ----- Recombine results of left branch ----- *
+     * -------------------------------------------- */
+    for (int i=branchSize-1 ; i>0 ; i++) {
+        recTree_t *child = &masterTree[i], *parent = &masterTree[i-1];
+        int childScore = -child->result->score;
+        if (childScore > parent->result->score) {
+            parent->result->score = childScore;
+            parent->result->best_move = child->move;
+            parent->result->pv_length = child->result->pv_length+1;
+            memcpy (parent->result->PV+1, child->result->PV,
+                    child->result->pv_length*sizeof(int));
+            parent->result->PV[0] = child->move;
+        }
+        parent->tree->alpha = MAX(parent->tree->alpha, childScore);
+    }
+    
+    // Memory
+    for (int i=0 ; i<T->depth+1 ; i++)
+        free(moves[i]);
+    free(moves);
+    free(n_moves);
+}
+
+void distribute_work (int start, int sizeTree, recTree_t *masterTree) {
+    MPI_Datatype *MPI_meta_tye = MPI_meta_creator();
+    int nb_proc;
+    MPI_Comm_size (MPI_COMM_WORLD, &nb_proc);
+
+    for (int dest=1 ; dest<nb_proc ; dest++) {
+        meta_t metaSend;
+        metaSend.index = start;
+        metaSend.nodes = 0;
+        metaSend.tree = *masterTree[start].tree;
+        metaSend.result = *masterTree[start].result;
+        MPI_Send (&metaSend, 1, *MPI_meta_type, dest, TAG_CONTINUE,
+                MPI_COMM_WORLD);
+        start++;
+    }
+
+    int slaveFinished = 0;
+    while (slaveFinished < nb_proc-1) {
+        MPI_Status status;
+        meta_t metaRecv;
+        MPI_Recv (&metaRecv, 1, *MPI_meta_type, MPI_ANY_SOURCE,
+                MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        int dest = status.MPI_SOURCE;
+
+        *masteTree[metaRecv.index].tree = metaRecv.tree;
+        *masterTree[metaRecv.index].result = metaRecv.result;
+        node_searched += metaRecv.nodes;
+
+        recTree_t *child = &masterTree[metaRecv.index];
+        recTree_t *parent = &masterTree[child->parentId];
+        int childScore = -child->result->score;
+
+        if (childScore > parent->result->score) {
+            parent->result->score = childScore;
+            parent->result->best_move = child->move;
+            parent->result->pv_length = child->pv_length + 1;
+            memcpy (parent->result->PV+1, child->result->PV,
+                    child->result->pv_length*sizeof(int));
+            parent->result->PV[0] = child->move;
+        }
+        if (childScore >= parent->tree->beta) {
+            parent->pruned = TRUE;
+        }
+        parent->tree->alpha = MAX(parent->tree->alpha, childScore);
+
+        // Search an element whose parent hasnt been pruned
+        while (masterTree[masterTree[start].parentId].pruned)
+            start++;
+        if (start<sizeTree) { // More tasks to send
+            metaRecv.index = start;
+            metaRecv.nodes = 0;
+            metaRecv.tree = *masterTree[start].tree;
+            metaRecv.result = *masterTree[start].result;
+            // TODO can we use Isend?
+            MPI_Send (&metaRecv, 1, *MPI_meta_type, dest,
+                    TAG_CONTINUE, MPI_COMM_WORLD);
+            start++;
+        }
+        else { // TODO check if we really need to send smth here
+            MPI_Send (NULL, 0, *MPI_meta_type, dest, TAG_STOP, MPI_COMM_WORLD);
+            slaveFinished++;
+        }
+    }
+    MPI_Type_free (MPI_meta_type);
+}
 
 
 
