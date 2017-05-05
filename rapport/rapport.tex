@@ -89,6 +89,56 @@ Ces valeurs serviront d'étalon pour mesurer les performances des parallélisati
 \end{center} \end{table}
 
 
+\section{Parallélisation du code naïf}
+    \subsection{OMP}
+    \subsection{MPI}
+    Pour cette implémentation, nous avons fait le choix d'utiliser une 
+    répartition de charge dynamique avec un modèle maître-esclave.
+    Afin de ne pas subir un potentiel déséquilibre entre les différentes
+    tâches, le maître prépare environ 10 fois plus de tâches qu'il n'y a
+    de processus esclaves. Pour cela, il effectue un parcours en largeur
+    jusqu'à arriver à une profondeur dont le nombre de branches vérifie le
+    critère précédent. Nous nous appuyons sur une structure C, permettant de
+    "remonter l'arbre" d'un noeud vers ses parents. La structure permet
+    également d'accéder aux structures \texttt{tree\_t} et \texttt{result\_t}
+    d'un noeud, pré-existante dans le code séquentiel.
+    Ainsi, avec un tableau de cette structure que nous avons créée, le 
+    processus maître maintient une liste des noeuds du haut de l'arbre,
+    qu'il utilise ensuite pour distribuer le travail aux processus esclaves.\\
+    \par Une fois que le maître a trouvé suffisemment de tâches, commence la
+    répartition des tâches. Il envoie à chacun des processus esclaves, un
+    couple de structures \texttt{tree\_t/result\_t} pour que celui-ci puisse
+    appeler \texttt{evaluate}. Une fois sa tâche finie, un processus esclave 
+    renvoie son résultat au processus 0, qui a son tour lui renvoie une
+    nouvelle tâche à effectuer. Lorsqu'il n'y a plus de tâches à une profondeur
+    donnée, les esclaves se bloquent et se mettent en attente. Le maître
+    recombine alors les données des esclaves. Ce déroulement est illustré par
+    la figure \ref{fig:time}. Lorsque le processus maître a identifié une
+    situation correspondant à la fin de la partie, il indique aux esclaves
+    qu'ils peuvent se terminer, avant de terminer lui-même.
+    \begin{figure} \begin{center}
+        \includegraphics[scale=0.2]{figures/placeholder}
+        \caption{\label{fig:time}Illustration du fonctionnement du programme
+        avec 4 processus. Le maître pré-calcul les tâches a distribuer,
+        puis les communique aux esclaves. Les esclaves travaillent sur les
+        tâches qui leurs sont attribuées avant de les renvoyer au maître.
+        Enfin, le maître recombine les résultats ensemble.}
+    \end{center} \end{figure}
+    On note que le processus maître ne travaille pas pendant que les esclaves
+    calculent.
+    \subsection{OMP + MPI}
+    Cette implémentation reprend simplement 
+    les principes des deux premières. Un processus maître prépare des tâches
+    qui sont ensuite distribuées aux esclaves. Ceux-ci utilisent alors OpenMP
+    pour paralléliser le calcul de leur tâche, avant de renvoyer le résultat
+    au maître.
+    \subsection{Analyse et comparaison}
+
+\section{Parallélisation avec alpha-bêta}
+    \subsection{OMP}
+    \subsection{MPI}
+    \subsection{OMP + MPI}
+    \subsection{Résultats et analyse}
 
 % ------------------------------------------
 %           Début du template
