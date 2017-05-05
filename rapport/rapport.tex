@@ -80,13 +80,13 @@ partie, il réitère en jouant un coup supplémentaire jusqu'à trouver une issu
 \par Les performances du programme séquentiel sont données dans la table \ref{tab:seq}.
 Ces valeurs serviront d'étalon pour mesurer les performances des parallélisations.
 \begin{table} \begin{center}
-    \begin{tabular}{|c|c|c||c|}
+    \begin{tabular}{|c|c|c||c|c|}
     \hline 
-    \textbf{Optimisation}  & \textbf{Machine(s)}        & \textbf{Entrée}   & \textbf{Temps}\\ \hline
-    \og Naïf \fg    &   gpu-3           &   "7K//k1P/7p b"          &   ???\\ \hline
-    \og Naïf \fg    &   14-15-401-05    &   "7K//k1P/7p b"          &   ???\\ \hline
-    Alpha-bêta      &   gpu-3           &   "/5p/4p/4P/4KP///k w"   &   ???\\ \hline
-    Alpha-bêta      &   14-15-401-05    &   "/5p/4p/4P/4KP///k w"   &   ???\\ \hline
+    \textbf{Optimisation}  & \textbf{Machine(s)}        & \textbf{Entrée}   & \textbf{Temps}    &   \textbf{N\oe uds cherchés}\\ \hline
+    \og Naïf \fg    &   14-15-401-05    &   "7K//k1P/7p b"          &   26min21     &   6~287~824~726\\ \hline
+    \og Naïf \fg    &   gpu-3           &   "7K//k1P/7p b"          &   40min40     &   6~287~824~726\\ \hline
+    Alpha-bêta      &   14-15-401-05    &   "/5p/4p/4P/4KP///k w"   &   13min19     &   3~622~607~245             \\ \hline
+    Alpha-bêta      &   gpu-3           &   "/5p/4p/4P/4KP///k w"   &   20min25     &   3~622~607~245 \\ \hline
     \end{tabular} 
     \caption{\label{tab:seq}Temps d'éxecution du programme séquentiel pour différents paramètres.}
 \end{center} \end{table}
@@ -94,7 +94,9 @@ Ces valeurs serviront d'étalon pour mesurer les performances des parallélisati
 qu'une seule fois, et en conséquence, sont sujets à une incertitude de mesure liée à
 la possible utilisation des machines par d'autre utilisateurs pendant la mesure.
 Néanmoins, on observe qu'ils semblent en accord avec les valeurs prévues dans les les 
-fichiers \texttt{positions\_v1.txt} et \texttt{positions\_v2.txt}.
+fichiers \texttt{positions\_v1.txt} et \texttt{positions\_v2.txt} pour les tests sur 
+\textsc{14-15-401-05}. Il est normal que les exécutions soient plus lentes sur gpu-3 puisque
+les processeurs sont moint puissant individuellement que ceux des autres salles.
 
 
 \section{Parallélisation du code naïf}
@@ -133,8 +135,20 @@ fichiers \texttt{positions\_v1.txt} et \texttt{positions\_v2.txt}.
     \end{center} \end{figure}
     On note que le processus maître ne travaille pas pendant que les esclaves
     calculent.\\
-    \par {\color{red} Ajouter les résultats (+ parler meta struct?
-    + avancée par rapport à la premiere deadline?)}
+    \begin{table} \begin{center}
+        \begin{tabular}{|c|c|c|}
+            \hline
+            \textbf{Temps}      &   \textbf{Accélération}   &   \textbf{Efficacité} \\ \hline
+            2min49$\pm$3.4s      &   9.34                   &   77.82\% \\ \hline
+        \end{tabular}
+        \caption{\label{tab:mpi1}Résultats de la parallélisation du code \og naïf \fg. Le temps
+        d'exécution correspond à une moyenne sur 10 exécutions, afin de réduire les erreurs de
+        mesure. Les tests ont été faits sur 12 machines de la salle 14-15-401.}
+    \end{center} \end{table}
+    \par Dans la table \ref{tab:mpi1} sont présentés les résultats obtenus avec
+    la parallélisation avec MPI.
+    \par {\color{red}parler meta struct?
+    + avancée par rapport à la premiere deadline?}
     \subsection{OMP}
     \subsection{OMP + MPI}
     Cette implémentation reprend simplement 
