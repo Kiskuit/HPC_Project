@@ -145,7 +145,7 @@ void master (tree_t *T, result_t *result) {
     /* Update parents on left branch */
     for (int i=sizeTree-1 ; i>0 ; i--) {
         tree_t *parentT = masterTree[i-1].tree, *childT = masterTree[i].tree;
-        result_t *parentR = masterTree[i-1].result, *childR = masterTree[i-1].result;
+        result_t *parentR = masterTree[i-1].result, *childR = masterTree[i].result;
         /* TODO Check if we actually need an if here?
          * Since this is the only move played, it has to be beter, right? */
         if (childR->score > parentR->score) {
