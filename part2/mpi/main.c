@@ -378,6 +378,84 @@ void master (tree_t *T, result_t *result) {
 
 }
 
+void alpha (tree_t *T, result_t *result) {
+    int beg, sizeTree = T->depth+1;
+    recTree_t *masterTree;
+    if ( (masterTree=malloc(sizeTree * sizeof(recTree_t))) == NULL) {
+        fprintf(stderr, "malloc error in alpha()\n");
+        exit(1);
+    }
+    masterTree[0].tree = T;
+    masterTree[0].result = result;
+    masterTree[0].pruned = FALSE;
+
+    int *n_moves = calloc (sizeTree, sizeof(int));
+    move_t **moves = calloc (sizeTree, sizeof(int*));
+    if (!n_moves || !moves) {
+        fprintf (stderr, "calloc error in alpha()\n");
+        exit(1);
+    }
+    for (int i=0 ; i<sizeTree ; i++) {
+        if ( (moves[i]=calloc(MAX_MOVES,sizeof(int))) == NULL) {
+            fprintf(stderr, "calloc error in alpha()\n");
+            exit(1);
+        }
+    }
+
+
+    for (int i=0 ; i<sizeTree ; i++) {
+        node_searched++;
+        tree_t tmpTree = masterTree[i].tree;
+        result_t tmpResult = masterTree[i].result;
+        masterTree[i].parentId = i-1;
+
+        tmpResult->score = -MAX_SCORE - 1;
+        tmpResult->pv_length = 0;
+        if (test_draw_or_victory (tmpTree, tmpResult)) {
+            sizeTree = i+1; /* TODO check that isnt'it just 'i' */
+            break;
+        }
+        if (i==sizeTree-1) {
+            tmpResult->score = (2 * tmpTree->side -1) * heuristic_evaluation (tmpTree);
+            break;
+        }
+        compute_attack_squares (tmpTree);
+        n_moves[i] = generate_legal_moves (tmpTree, moves[i]);
+        if (n_moves[i]==0) {
+            tmpResult->score = check(tmpTree)?-MAX_SCORE:CERTAIN_DRAW;
+            sizeTree = i+1; /* TODO Same above */
+            break;
+        }
+        sort_moves (tmpTree, n_moves[i], mvoes[i]);
+        masterTree[i+1].move = moves[i][0];
+        masterTree[i+1].tree = malloc (sizeof(tree_t));
+        masterTree[i+1].result = malloc (sizeof(result_t));
+        masterTree[i+1].pruned = FALSE;
+        if (!masterTree[i+1].tree || ! masterTree[i+1].result) {
+            fprintf (stderr, "malloc error in alpha()\n");
+            exit(1);
+        }
+        play_move (tmpTree, moves[i][0], masterTree[i+1].tree);
+    }
+
+    for (int i =sizeTree-1 ; i>0 ; i--) {
+        tree_t *parentT = masterTree[i-1].tree, *childT = masterTree[i].tree;
+        result_t *parentR = masterTree[i-1].result, *childR = masterTree[i].tree;
+        if (childR->score > parentR->score) {
+            parentR->score = childR->score;
+            parentR->best_move = masterTree[i].move;
+            parentR->pv_length = childR->pv_length + 1;
+            memcpy (parentR->PV+1, childR->PV, childR->pv_length * sizeof(int));
+            parentR->PV[0] = masterTree[i].move;
+        }
+
+        if (childR->score >= parentT->beta) {
+            n_moves[i-1] = 1;
+            masterTree[i-1].pruned = TRUE;
+        }
+        else {
+            /* DO PARALLEL THINGY HERE! */
+        }
 
 
 
