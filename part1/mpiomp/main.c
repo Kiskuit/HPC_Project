@@ -152,6 +152,7 @@ void pre_evaluate (tree_t *T, result_t *result) {
         /* For every node at this level */
 #pragma parallel for
         for (int i=beg ; i<bound ; i++) {
+#pragma omp atomic
             node_searched++;
             /* Just to shorten notations */
             tree_t *tmpTree = preEvalTrees[i].tree;
@@ -329,7 +330,7 @@ void pre_evaluate (tree_t *T, result_t *result) {
 // Only slaves call evaluate
 void evaluate(tree_t * T, result_t *result, int prof)
 {
-//#pragma omp atomic
+#pragma omp atomic
     node_searched++;
 
     move_t moves[MAX_MOVES];
@@ -362,8 +363,8 @@ void evaluate(tree_t * T, result_t *result, int prof)
 
     if (ALPHA_BETA_PRUNING)
         sort_moves(T, n_moves, moves);
-    /* évalue récursivement les positions accessibles à partir d'ici */
     
+    /* évalue récursivement les positions accessibles à partir d'ici */
     if(prof < OMP_MAX_PROF) {
         int child_score[n_moves];
         tree_t child[n_moves];
@@ -489,8 +490,10 @@ int slave_function() {
 //                   MPI_COMM_WORLD, NULL);
             MPI_Recv (&meta, 1, *MPI_meta_type, dest, tag,
                     MPI_COMM_WORLD, NULL);
-
+            
             /* Main job */
+#pragma omp parallel
+#pragma omp single
             evaluate (&meta.tree, &meta.result, 0);
 
             /* Send response */
@@ -516,7 +519,7 @@ int slave_function() {
 
 int main(int argc, char **argv)
 {
-    omp_set_num_threads(4); 
+    //omp_set_num_threads(4); 
     tree_t root;
     result_t result;
     int rank, comSize;
