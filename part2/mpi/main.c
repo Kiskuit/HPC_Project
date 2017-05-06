@@ -76,7 +76,7 @@ void alpha (tree_t *T, result_t *result) {
     int nb_proc;
     MPI_Comm_size (MPI_COMM_WORLD, &nb_proc);
     // Leftmost branch is first stored in the tree
-    int beg, sizeTree = T->depth+1, branchSize = T->depth+1;
+    int beg, sizeTree = T->depth+1, sizeBranch = T->depth+1;
     recTree_t *masterTree;
     if ( (masterTree=malloc(sizeTree * sizeof(recTree_t))) == NULL) {
         fprintf(stderr, "malloc error in alpha()\n");
@@ -114,7 +114,7 @@ void alpha (tree_t *T, result_t *result) {
         tmpResult->score = -MAX_SCORE - 1;
         tmpResult->pv_length = 0;
         if (test_draw_or_victory (tmpTree, tmpResult)) {
-            branchSize = sizeTree = i+1;
+            sizeBranch = sizeTree = i+1;
             break;
         }
         if (i==sizeTree-1) {
@@ -125,7 +125,7 @@ void alpha (tree_t *T, result_t *result) {
         n_moves[i] = generate_legal_moves (tmpTree, moves[i]);
         if (n_moves[i]==0) {
             tmpResult->score = check(tmpTree)?-MAX_SCORE:CERTAIN_DRAW;
-            branchSize = sizeTree = i+1;
+            sizeBranch = sizeTree = i+1;
             break;
         }
         sort_moves (tmpTree, n_moves[i], moves[i]);
@@ -138,77 +138,73 @@ void alpha (tree_t *T, result_t *result) {
             exit(1);
         }
         play_move (tmpTree, moves[i][0], masterTree[i+1].tree);
+        masterTree[i+1].result->pv_length = 0;
+        masterTree[i+1].result->score = -MAX_SCORE-1;
     } // END for (sizeTree)
+///       for (int i=0;i<sizeTree-1;i++) {
+///           printf("------\nn_moves = %d\n",n_moves[i]);
+///           for (int j=0; j<n_moves[i]; j++)
+///               printf("\tmoves[%d][%d] = %d\n",i,j,moves[i][j]);
+///       }
 
-    // Analyze leftmost leaf
-    recTree_t *child = &masterTree[sizeTree-1], *parent = &masterTree[sizeTree-2];
-    int childScore = -child->result->score;
-    if (childScore > parent->result->score) {
-        parent->result->score = childScore;
-        parent->result->best_move = child->move;
-        parent->result->pv_length = child->result->pv_length + 1;
-        memcpy (parent->result->PV+1, child->result->PV,
-                child->result->pv_length*sizeof(int));
-        parent->result->PV[0] = child->move;
-    }
-    if (childScore > parent->tree->beta) {
-        n_moves[sizeTree-2] = 1;
-        parent->pruned = TRUE;
-    }
 
     /* ------------------------------------------------------------ *
      * ----- Go up the tree, create task, and distribute work ----- *
      * ------------------------------------------------------------ */
     beg = sizeTree;
-    int nb_tasks = 0;
-    for (int i=sizeTree-2 ; i>0 ; i--) {
+    recTree_t *child, *parent;
+    int nb_tasks = 0, childScore;
+    for (int i=sizeBranch-1 ; i>0 ; i--) {
         child = &masterTree[i], parent = &masterTree[i-1];
         childScore = -child->result->score;
-        parent->result->score = childScore;
-        parent->result->best_move = child->move;
-        parent->result->pv_length = child->result->pv_length + 1;
-        memcpy (parent->result->PV+1, child->result->PV,
-                child->result->pv_length * sizeof(int));
-        parent->result->PV[0] = child->move;
-        // Prunning parent if needed
-        if (child->result->score >= parent->tree->beta) {
-            parent->pruned = TRUE;
+        //printf("childScore : %d\n",-childScore);
+        if (childScore > parent->result->score) {
+            parent->result->score = childScore;
+            parent->result->best_move = child->move;
+            parent->result->pv_length = child->result->pv_length + 1;
+            memcpy (parent->result->PV+1, child->result->PV,
+                    child->result->pv_length*sizeof(int));
+            parent->result->PV[0] = child->move;
         }
-        parent->tree->alpha = MAX(parent->tree->alpha, childScore);
-        // If it has not been pruned...
-        if (!masterTree[i].pruned) {
+
+        if (childScore > parent->tree->beta) 
+            parent->pruned = TRUE;
+        else {
+            parent->tree->alpha = MAX(parent->tree->alpha, childScore);
             int lower = sizeTree;
-            sizeTree += n_moves[i] - 1;
-            nb_tasks += n_moves[i] - 1;
+            sizeTree += n_moves[i-1] - 1;
+            nb_tasks += n_moves[i-1] - 1;
             if ( (masterTree = realloc(masterTree, sizeTree*sizeof(recTree_t))) == NULL) {
-                fprintf(stderr, "realloc error in alpha()\n");
+                fprintf(stderr,"realloc error in alpha()\n");
                 exit(1);
             }
-            // ... Add every child but the first to the taskslist
             for (int j=lower ; j<sizeTree ; j++) {
-                masterTree[j].parentId = i;
-                masterTree[j].move = moves[i][j-lower+1];
-                masterTree[j].tree = malloc (sizeof(tree_t));
-                masterTree[j].result = malloc (sizeof(result_t));
+                masterTree[j].parentId = i-1;
+                masterTree[j].move = moves[i-1][j-lower+1];
+                masterTree[j].tree = malloc(sizeof(tree_t));
+                masterTree[j].result = malloc(sizeof(result_t));
                 masterTree[j].pruned = FALSE;
                 if (!masterTree[j].tree || !masterTree[j].result) {
-                    fprintf(stderr, "malloc error in alpha()\n");
+                    fprintf(stderr,"malloc error in alpha()\n");
                     exit(1);
                 }
-                play_move(masterTree[i].tree, masterTree[j].move, masterTree[j].tree);
+                play_move(masterTree[i-1].tree, masterTree[j].move, masterTree[j].tree);
             }
         }
-        // If enough tasks or no more tasks will be created, distribute tasks
-        if (nb_tasks >= RATIO*nb_proc || i==1) {
+        //if (nb_tasks >= RATIO*nb_proc || i==1) {
+        //printf("Before... %d, %d, %d\t", nb_tasks,sizeTree,beg);
+        //fflush(stdout);
             distribute_work (beg, sizeTree, masterTree);
             nb_tasks = 0;
             beg = sizeTree;
-        }
+        //printf("After, %d;%d;%d\n", masterTree[0].pruned,n_moves[0],n_moves[1]);
+        //}
     }
+
     /* -------------------------------------------- *
      * ----- Recombine results of left branch ----- *
      * -------------------------------------------- */
-    for (int i=branchSize-1 ; i>0 ; i--) {
+    for (int i=sizeBranch-1 ; i>0 ; i--) {
         child = &masterTree[i], parent = &masterTree[i-1];
         childScore = -child->result->score;
         if (childScore > parent->result->score) {
@@ -219,7 +215,11 @@ void alpha (tree_t *T, result_t *result) {
                     child->result->pv_length*sizeof(int));
             parent->result->PV[0] = child->move;
         }
-        parent->tree->alpha = MAX(parent->tree->alpha, childScore);
+        if (childScore >= parent->tree->beta)
+            parent->pruned = TRUE;
+
+        else  
+            parent->tree->alpha = MAX(parent->tree->alpha, childScore);
     }
     
     // Memory
@@ -230,6 +230,7 @@ void alpha (tree_t *T, result_t *result) {
 }
 
 void distribute_work (int start, int sizeTree, recTree_t *masterTree) {
+    static int call = 0;
     MPI_Datatype *MPI_meta_type = MPI_meta_creator();
     int nb_proc;
     MPI_Comm_size (MPI_COMM_WORLD, &nb_proc);
@@ -243,6 +244,10 @@ void distribute_work (int start, int sizeTree, recTree_t *masterTree) {
         MPI_Send (&metaSend, 1, *MPI_meta_type, dest, TAG_CONTINUE,
                 MPI_COMM_WORLD);
         start++;
+        if (start == sizeTree) {
+            nb_proc = dest + 1;
+            break;
+        }
     }
 
     int slaveFinished = 0;
@@ -260,8 +265,12 @@ void distribute_work (int start, int sizeTree, recTree_t *masterTree) {
         recTree_t *child = &masterTree[metaRecv.index];
         recTree_t *parent = &masterTree[child->parentId];
         int childScore = -child->result->score;
+        //printf("child : %d ; parent : %d\n", metaRecv.index, child->parentId);
 
+        //printf("childScore(%2d of %d):%4d\n",metaRecv.index,child->parentId,
+        //        child->result->score);
         if (childScore > parent->result->score) {
+            //printf("HERE\n");
             parent->result->score = childScore;
             parent->result->best_move = child->move;
             parent->result->pv_length = child->result->pv_length + 1;
@@ -272,10 +281,11 @@ void distribute_work (int start, int sizeTree, recTree_t *masterTree) {
         if (childScore >= parent->tree->beta) {
             parent->pruned = TRUE;
         }
-        parent->tree->alpha = MAX(parent->tree->alpha, childScore);
+        else
+            parent->tree->alpha = MAX(parent->tree->alpha, childScore);
 
         // Search an element whose parent hasnt been pruned
-        while (masterTree[masterTree[start].parentId].pruned)
+        while (start < sizeTree && masterTree[masterTree[start].parentId].pruned)
             start++;
         if (start<sizeTree) { // More tasks to send
             metaRecv.index = start;
@@ -363,6 +373,7 @@ void evaluate(tree_t * T, result_t *result)
         play_move(T, moves[i], &child);
 
         evaluate(&child, &child_result);
+        //printf ("childmove : %5d-->%4d\t(%d)\n",moves[i], child_result.score, result->score);
 
         int child_score = -child_result.score;
 
@@ -414,7 +425,6 @@ void decide(int rank, int nb_proc, tree_t * T, result_t *result){
 ///           int isOver = FALSE;
 ///           while (!isOver)
 ///               isOver = slave_function();
-        printf("Slave %d starting function\n", rank);
         slave_function();
     }
 }
