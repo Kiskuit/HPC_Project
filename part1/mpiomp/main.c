@@ -93,7 +93,6 @@ MPI_Datatype *MPI_meta_creator () {
 */
 void pre_evaluate (tree_t *T, result_t *result) {
     node_searched++;
-
     /* MPI vars */
     int nb_proc;
     MPI_Comm_size(MPI_COMM_WORLD, &nb_proc);
@@ -516,7 +515,8 @@ int slave_function() {
 }
 
 int main(int argc, char **argv)
-{  
+{
+    omp_set_num_threads(4); 
     tree_t root;
     result_t result;
     int rank, comSize;
