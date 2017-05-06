@@ -106,7 +106,7 @@ void alpha (tree_t *T, result_t *result) ;
 void distribute_work (int start, int sizeTree, recTree_t *masterTree) ;
 
 /* Slaves's function, evaluate a branch of the tree, and communicate w/ master */
-int slave_function();
+void slave_function();
 
 /********************************************
  * Fonctions auxiliaires

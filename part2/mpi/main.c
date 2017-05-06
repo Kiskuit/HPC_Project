@@ -2,9 +2,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 
-#define RATIO 10
-/* TODO estimates how many time we have pruning with a counter in 
- * original. Adjust ratio according to result, speak about it in report */
+#define RATIO 5
 
 /* 2017-02-23 : version 1.0 */
 /* Global Variables */
@@ -74,9 +72,9 @@ MPI_Datatype *MPI_meta_creator () {
  * -Second : Distribute works to slave as soon as they are ready.
  * -Third : Recombine all work done by slaves.
 */
-/* TODO set pruned flag to FALSE everywhere (by default) */
-
 void alpha (tree_t *T, result_t *result) {
+    int nb_proc;
+    MPI_Comm_size (MPI_COMM_WORLD, &nb_proc);
     // Leftmost branch is first stored in the tree
     int beg, sizeTree = T->depth+1, branchSize = T->depth+1;
     recTree_t *masterTree;
@@ -116,7 +114,7 @@ void alpha (tree_t *T, result_t *result) {
         tmpResult->score = -MAX_SCORE - 1;
         tmpResult->pv_length = 0;
         if (test_draw_or_victory (tmpTree, tmpResult)) {
-            branchSize = sizeTree = i+1; /* TODO check that isnt'it just 'i' */
+            branchSize = sizeTree = i+1;
             break;
         }
         if (i==sizeTree-1) {
@@ -127,10 +125,10 @@ void alpha (tree_t *T, result_t *result) {
         n_moves[i] = generate_legal_moves (tmpTree, moves[i]);
         if (n_moves[i]==0) {
             tmpResult->score = check(tmpTree)?-MAX_SCORE:CERTAIN_DRAW;
-            branchSize = sizeTree = i+1; /* TODO Same above */
+            branchSize = sizeTree = i+1;
             break;
         }
-        sort_moves (tmpTree, n_moves[i], mvoes[i]);
+        sort_moves (tmpTree, n_moves[i], moves[i]);
         masterTree[i+1].move = moves[i][0];
         masterTree[i+1].tree = malloc (sizeof(tree_t));
         masterTree[i+1].result = malloc (sizeof(result_t));
@@ -143,43 +141,40 @@ void alpha (tree_t *T, result_t *result) {
     } // END for (sizeTree)
 
     // Analyze leftmost leaf
-    // TODO simplify notations!
-    if (masterTree[sizeTree-1].result->score > masterTree[sizeTree-2].result->score) {
-        masterTree[sizeTree-2].result->score = masterTree[sizeTree-1].result->score;
-        masterTree[sizeTree-2].result->best_move = masterTree[sizeTree-1].move;
-        masterTree[sizeTree-2].result->pv_length = masterTree[sizeTree-1].result->pv_length+1;
-        memcpy (masterTree[sizeTree-2].result->PV+1, masterTree[sizeTree-1].result->PV,
-                masterTree[sizeTree-1].result->pv_length * sizeof(int));
-        masterTree[size-2].result->PV[0] = masterTree[sizeTree-1].move;
+    recTree_t *child = &masterTree[sizeTree-1], *parent = &masterTree[sizeTree-2];
+    int childScore = -child->result->score;
+    if (childScore > parent->result->score) {
+        parent->result->score = childScore;
+        parent->result->best_move = child->move;
+        parent->result->pv_length = child->result->pv_length + 1;
+        memcpy (parent->result->PV+1, child->result->PV,
+                child->result->pv_length*sizeof(int));
+        parent->result->PV[0] = child->move;
     }
-    if (masterTree[siezTree-1].result->score > masterTree[sizeTree-2].tree->beta) {
+    if (childScore > parent->tree->beta) {
         n_moves[sizeTree-2] = 1;
-        masterTree[sizeTree-2].pruned = TRUE;
+        parent->pruned = TRUE;
     }
 
     /* ------------------------------------------------------------ *
      * ----- Go up the tree, create task, and distribute work ----- *
      * ------------------------------------------------------------ */
     beg = sizeTree;
+    int nb_tasks = 0;
     for (int i=sizeTree-2 ; i>0 ; i--) {
-        // TODO change to pointer to save the copy
-        rectTree_t child = masterTree[i], parent = masterTree[i-1];
-        int childScore = -child.result->score;
-        // TODO check with and without the if
-        if (childScore > parent.result->score) {
-            parent.result->score = childScore;
-            parent.result->best_move = child.move;
-            parent.result->pv_length = child.result->pv_length + 1;
-            memcpy (parent.result->PV+1, child.result->PV,
-                    child.result->pv_length * sizeof(int));
-            parent.result->PV[0] = child.move;
+        child = &masterTree[i], parent = &masterTree[i-1];
+        childScore = -child->result->score;
+        parent->result->score = childScore;
+        parent->result->best_move = child->move;
+        parent->result->pv_length = child->result->pv_length + 1;
+        memcpy (parent->result->PV+1, child->result->PV,
+                child->result->pv_length * sizeof(int));
+        parent->result->PV[0] = child->move;
+        // Prunning parent if needed
+        if (child->result->score >= parent->tree->beta) {
+            parent->pruned = TRUE;
         }
-
-        // Prunning
-        if (childR->score >= parentT->beta) {
-            n_moves[i-1] = 1; // TODO remove this?
-            masterTree[i-1].pruned = TRUE;
-        }
+        parent->tree->alpha = MAX(parent->tree->alpha, childScore);
         // If it has not been pruned...
         if (!masterTree[i].pruned) {
             int lower = sizeTree;
@@ -192,9 +187,10 @@ void alpha (tree_t *T, result_t *result) {
             // ... Add every child but the first to the taskslist
             for (int j=lower ; j<sizeTree ; j++) {
                 masterTree[j].parentId = i;
-                masterTree[j].move = moves[j-lower+1];
+                masterTree[j].move = moves[i][j-lower+1];
                 masterTree[j].tree = malloc (sizeof(tree_t));
                 masterTree[j].result = malloc (sizeof(result_t));
+                masterTree[j].pruned = FALSE;
                 if (!masterTree[j].tree || !masterTree[j].result) {
                     fprintf(stderr, "malloc error in alpha()\n");
                     exit(1);
@@ -202,8 +198,8 @@ void alpha (tree_t *T, result_t *result) {
                 play_move(masterTree[i].tree, masterTree[j].move, masterTree[j].tree);
             }
         }
-        // If enough tasks, distribute tasks
-        if (nb_tasks >= RATIO*nb_proc) {
+        // If enough tasks or no more tasks will be created, distribute tasks
+        if (nb_tasks >= RATIO*nb_proc || i==1) {
             distribute_work (beg, sizeTree, masterTree);
             nb_tasks = 0;
             beg = sizeTree;
@@ -212,9 +208,9 @@ void alpha (tree_t *T, result_t *result) {
     /* -------------------------------------------- *
      * ----- Recombine results of left branch ----- *
      * -------------------------------------------- */
-    for (int i=branchSize-1 ; i>0 ; i++) {
-        recTree_t *child = &masterTree[i], *parent = &masterTree[i-1];
-        int childScore = -child->result->score;
+    for (int i=branchSize-1 ; i>0 ; i--) {
+        child = &masterTree[i], parent = &masterTree[i-1];
+        childScore = -child->result->score;
         if (childScore > parent->result->score) {
             parent->result->score = childScore;
             parent->result->best_move = child->move;
@@ -234,7 +230,7 @@ void alpha (tree_t *T, result_t *result) {
 }
 
 void distribute_work (int start, int sizeTree, recTree_t *masterTree) {
-    MPI_Datatype *MPI_meta_tye = MPI_meta_creator();
+    MPI_Datatype *MPI_meta_type = MPI_meta_creator();
     int nb_proc;
     MPI_Comm_size (MPI_COMM_WORLD, &nb_proc);
 
@@ -257,7 +253,7 @@ void distribute_work (int start, int sizeTree, recTree_t *masterTree) {
                 MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         int dest = status.MPI_SOURCE;
 
-        *masteTree[metaRecv.index].tree = metaRecv.tree;
+        *masterTree[metaRecv.index].tree = metaRecv.tree;
         *masterTree[metaRecv.index].result = metaRecv.result;
         node_searched += metaRecv.nodes;
 
@@ -268,7 +264,7 @@ void distribute_work (int start, int sizeTree, recTree_t *masterTree) {
         if (childScore > parent->result->score) {
             parent->result->score = childScore;
             parent->result->best_move = child->move;
-            parent->result->pv_length = child->pv_length + 1;
+            parent->result->pv_length = child->result->pv_length + 1;
             memcpy (parent->result->PV+1, child->result->PV,
                     child->result->pv_length*sizeof(int));
             parent->result->PV[0] = child->move;
@@ -291,10 +287,31 @@ void distribute_work (int start, int sizeTree, recTree_t *masterTree) {
                     TAG_CONTINUE, MPI_COMM_WORLD);
             start++;
         }
-        else { // TODO check if we really need to send smth here
-            MPI_Send (NULL, 0, *MPI_meta_type, dest, TAG_STOP, MPI_COMM_WORLD);
+        else
             slaveFinished++;
-        }
+    }
+    MPI_Type_free (MPI_meta_type);
+}
+
+void slave_function() {
+    MPI_Status status;
+    MPI_Datatype *MPI_meta_type = MPI_meta_creator ();
+    meta_t meta;
+    const int dest = 0;
+    /* Loop to receive work, execute it, and send it back */
+    while (TRUE) {
+        MPI_Recv (&meta, 1, *MPI_meta_type, dest, MPI_ANY_TAG,
+                MPI_COMM_WORLD, &status);
+        if (status.MPI_TAG == TAG_OVER)
+            break;
+
+        /* Main job */
+        evaluate (&meta.tree, &meta.result);
+
+        /* Send response */
+        meta.nodes = node_searched;
+        MPI_Send (&meta, 1, *MPI_meta_type, dest, TAG_ANS, MPI_COMM_WORLD);
+        node_searched = 0;
     }
     MPI_Type_free (MPI_meta_type);
 }
@@ -379,7 +396,7 @@ void decide(int rank, int nb_proc, tree_t * T, result_t *result){
             T->beta = MAX_SCORE + 1;
 
             printf("=====================================\n");
-            master(T, result);
+            alpha(T, result);
 
             printf("depth: %d / score: %.2f / best_move : ", T->depth, 0.01 * result->score);
             print_pv(T, result);
@@ -394,43 +411,12 @@ void decide(int rank, int nb_proc, tree_t * T, result_t *result){
     }
     /* Slaves execute this */
     else {
-        int isOver = FALSE;
-        while (!isOver)
-            isOver = slave_function();
+///           int isOver = FALSE;
+///           while (!isOver)
+///               isOver = slave_function();
+        printf("Slave %d starting function\n", rank);
+        slave_function();
     }
-}
-
-int slave_function() {
-    MPI_Status status;
-    MPI_Datatype *MPI_meta_type = MPI_meta_creator ();
-    int tag;
-    meta_t meta;
-    const int dest = 0;
-    /* Loop to receive work, execute it, and send it back */
-    do {
-        MPI_Probe (dest, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-        tag = status.MPI_TAG;
-
-        if(tag == TAG_CONTINUE) { /* More work to do */
-            MPI_Recv (&meta, 1, *MPI_meta_type, dest, tag,
-                    MPI_COMM_WORLD, NULL);
-
-            /* Main job */
-            evaluate (&meta.tree, &meta.result);
-
-            /* Send response */
-            meta.nodes = node_searched;
-            MPI_Send (&meta, 1, *MPI_meta_type, dest, TAG_ANS, MPI_COMM_WORLD);
-            node_searched = 0;
-        }
-        else {
-            /* Recv to unlock slave */
-            MPI_Recv (NULL, 0, *MPI_meta_type, dest, tag,
-                    MPI_COMM_WORLD, NULL);
-            MPI_Type_free (MPI_meta_type);
-            return (tag==TAG_OVER);
-        }
-    } while (tag == TAG_CONTINUE);
 }
 
 int main(int argc, char **argv)
