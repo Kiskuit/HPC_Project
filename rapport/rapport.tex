@@ -32,7 +32,7 @@
 \usepackage{color}
 \usepackage[top=1in, bottom=1.25in, left=1.25in, right=1.25in]{geometry}
 
-\renewcommand{\labelenumi}{\alph{enumi}.} % Make numbering in the enumerate environment by letter rather than number (e.g. section 6)
+%\renewcommand{\labelenumi}{\alph{enumi}.} % Make numbering in the enumerate environment by letter rather than number (e.g. section 6)
 
 %\usepackage{times} % Uncomment to use the Times New Roman font
 
@@ -58,8 +58,7 @@
     Le travail a été découpé en deux blocs distincts, tout d'abord la paralélisation
     du code \og naïf\fg. Puis L'extension de la paralélisation à une approche plus
     intelligente du problème qui utilise \og l'élagage alpha-bêta\fg.
-    Les trois implémentations ont été réalisées pour les deux blocs, et les résultats
-    sont comparés ici.
+    Les résultats des implémentations pour chaque bloc sont analysés et comparés ici.
 \end{abstract}
 
 %----------------------------------------------------------------------------------------
@@ -114,6 +113,15 @@ les processeurs sont moint puissant individuellement que ceux des autres salles.
     Ainsi, avec un tableau de cette structure que nous avons créée, le 
     processus maître maintient une liste des noeuds du haut de l'arbre,
     qu'il utilise ensuite pour distribuer le travail aux processus esclaves.\\
+    \begin{figure}[t] \begin{center}
+        \includegraphics[scale=0.33]{figures/time}
+        \caption{\label{fig:time}Illustration du fonctionnement du programme
+        avec 4 processus. Le maître pré-calcul les tâches a distribuer,
+        puis les communique aux esclaves. Les esclaves travaillent sur les
+        tâches qui leurs sont attribuées avant de les renvoyer au maître.
+        Enfin, le maître recombine les résultats ensemble. L'échelle de temps 
+        n'est pas respectée.}
+    \end{center} \end{figure}
     \par Une fois que le maître a trouvé suffisemment de tâches, commence la
     répartition des tâches. Il envoie à chacun des processus esclaves, un
     couple de structures \texttt{tree\_t/result\_t} pour que celui-ci puisse
@@ -125,14 +133,6 @@ les processeurs sont moint puissant individuellement que ceux des autres salles.
     la figure \ref{fig:time}. Lorsque le processus maître a identifié une
     situation correspondant à la fin de la partie, il indique aux esclaves
     qu'ils peuvent se terminer, avant de terminer lui-même.
-    \begin{figure} \begin{center}
-        \includegraphics[scale=0.33]{figures/time}
-        \caption{\label{fig:time}Illustration du fonctionnement du programme
-        avec 4 processus. Le maître pré-calcul les tâches a distribuer,
-        puis les communique aux esclaves. Les esclaves travaillent sur les
-        tâches qui leurs sont attribuées avant de les renvoyer au maître.
-        Enfin, le maître recombine les résultats ensemble.}
-    \end{center} \end{figure}
     On note que le processus maître ne travaille pas pendant que les esclaves
     calculent.\\
     \begin{table} \begin{center}
@@ -146,9 +146,17 @@ les processeurs sont moint puissant individuellement que ceux des autres salles.
         mesure. Les tests ont été faits sur 12 machines de la salle 14-15-401.}
     \end{center} \end{table}
     \par Dans la table \ref{tab:mpi1} sont présentés les résultats obtenus avec
-    la parallélisation avec MPI.
-    \par {\color{red}parler meta struct?
-    + avancée par rapport à la premiere deadline?}
+    la parallélisation avec MPI. Ces résultats semblent corrects, compte-tenu
+    du modèle de parallélisation utilisé (maître-esclave). En effet, bien que nous 
+    utilisons 12 processus, nous ne pouvons pas attendre une accélération meilleure que 11,
+    puisque le maître ne participe quasiment pas (le pré-calcul ne prenant pas beaucoup de temps).
+    On peut donc considérer que l'efficacité parallèle réelle est de $9.34/11 = 84,9\%$, 
+    et c'est vers cette valeur que devrait tendre l'efficacité si on augmentait
+    le nombre de processus (en supposant que notre solution soit toujours
+    efficace un nombre important de processus).
+
+    %\par {\color{red}parler meta struct?
+    %+ avancée par rapport à la premiere deadline?}
     \subsection{OMP}
     \subsection{OMP + MPI}
     Cette implémentation reprend simplement 
@@ -168,22 +176,48 @@ les processeurs sont moint puissant individuellement que ceux des autres salles.
     approche semblait pertinente ; nous avons choisi de faire jouer au
     maître toute la branche la plus à gauche de l'arbre, soit
     probablement les meilleurs coups (d'après une heuristique qui n'est pas 
-    exacte). Il élague ensuite les branches en fonction de ce premier
-    parcours. Ensuite, nous appliquons à nouveau le principe utilisé pour
-    la version naïve. Le maître génère un nombre de tâches suffisamment
-    important puis les distribue aux esclaves. Une différence existe
-    néanmoins avec la version précédente, lorsqu'il reçoit des résultats,
-    il les analyse immédiatement, afin d'effectuer les coupes nécessaires
-    si besoin. Dans la version naïve, l'analyse des résultats était
-    effectuée collectivement une fois tous les résultats obtenus.
-    Notons également l'introduction d'un paramètre supplémentaire pour
-    la quantité de tâches générées. En effet, nous demandons que le maître
-    génère $k*nb_{proc}$ tâches. Nous avons fait des essais avec plusieurs
-    valeurs de $k$. Cette idée nous est venue en considérant que les coupes
-    allaient probablement diminuer le nombre de tâches à effectivement
-    analyser par les esclaves, augmentant la possibilité de déséquilibre
-    de charge. Les résultats obtenus sont présentés dans la table
-    \ref{tab:alpha}
+    exacte). L'algorithme part ensuite de la feuille qu'il a calculé, et
+    remonte l'arbre. A chaque niveau de l'arbre, il vérifie si le n\oe ud de 
+    gauche permet d'élaguer les autres n\oe ud avec lesquels il partage
+    son parent. Dans le cas contraire, le calcul des \og n\oe ds frères \fg
+    est lancé en parallèle avec MPI.\\
+    \par Malheureusement, cette méthode est peu efficace, car elle préesente
+    deux principaux désaventages :
+    \begin{enumerate}
+        \item Tout d'abord, dans nos parties d'échecs, le nombre
+    de coups est souvent limité (autour de 5-6). Or chaque coup est joué sur un
+    processus MPI, donc un grand nombre de processus ne bénéficie pas du tout
+    à cet algorithme.
+        \item De plus, sur une profondeur importante (>14),
+    en arrivant sur le haut de l'arbre, si les branches de droite n'ont pas
+    été élaguées, leur calcul se révèle quasiment aussi long que le calcul
+    initial séquentiel. 
+    \end{enumerate}
+    Plusieurs solutions ont été envisagées pour résoudre ces problèmes.
+    D'une part il a été envisagé d'utiliser comme pour la parallélisation
+    naïve, une liste de tâches à faire, et de ne lancer la parallélisation
+    qu'après que cette liste ait atteint une taille suffisamment importante
+    (de l'ordre de 10 fois le nombre de processus).
+    La mise en place de cette solution n'a pas été concluante. En effet,
+    Lorsque des n\oe uds de différents niveaux sont parallélisés ensemble
+    le calcul n'est plus correct. Nous avons par exemple obtenus une solution
+    pour l'entrée "/5p/4p/4P/4KP///k w" en moins d'une seconde, et qui
+    n'était pas la bonne (profondeur de 10 au lieu de 16, mauvais choix de
+    mouvement pour le joueur noir dès son premier tour de jeu, moins de
+    50~000 n\oe uds visités). Nous n'avons pas réussi à isoler la cause de ce
+    dysfonctionnement et avons donc simplement choisi de ne pas utiliser cette
+    méthode.\\
+    La solution pour le second problème, était d'appeler récursivement
+    la fonction \texttt{alpha} (la fonction du processus maître)
+    lorsque l'algorithme était haut dans l'arbre. Nous avons également
+    tenté d'implémenter cette solution, sans succès. Une erreur
+    de segmentation survenait de manière irrégulière lors de l'exécution.\\
+    \par Pendant nos tests et tentatives de résolution, afin d'augmenter
+    la chance de détecter des problèmes d'exécution non systématique (à
+    cause de la parallélisation), nous avons réduit le nombre de processus MPI
+    à deux, ce qui permet d'avoir toujours le même ordre d'exécution (dans le
+    case maître-esclave).
+    Les résultats obtenus sont présentés dans la table \ref{tab:alpha}
     \begin{table} \begin{center}
     	\begin{tabular}{|c|c|c|}
     	\hline
