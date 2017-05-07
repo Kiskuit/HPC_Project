@@ -141,11 +141,6 @@ void alpha (tree_t *T, result_t *result) {
         masterTree[i+1].result->pv_length = 0;
         masterTree[i+1].result->score = -MAX_SCORE-1;
     } // END for (sizeTree)
-///       for (int i=0;i<sizeTree-1;i++) {
-///           printf("------\nn_moves = %d\n",n_moves[i]);
-///           for (int j=0; j<n_moves[i]; j++)
-///               printf("\tmoves[%d][%d] = %d\n",i,j,moves[i][j]);
-///       }
 
 
     /* ------------------------------------------------------------ *
@@ -157,7 +152,6 @@ void alpha (tree_t *T, result_t *result) {
     for (int i=sizeBranch-1 ; i>0 ; i--) {
         child = &masterTree[i], parent = &masterTree[i-1];
         childScore = -child->result->score;
-        //printf("childScore : %d\n",-childScore);
         if (childScore > parent->result->score) {
             parent->result->score = childScore;
             parent->result->best_move = child->move;
@@ -192,12 +186,9 @@ void alpha (tree_t *T, result_t *result) {
             }
         }
         //if (nb_tasks >= RATIO*nb_proc || i==1) {
-        //printf("Before... %d, %d, %d\t", nb_tasks,sizeTree,beg);
-        //fflush(stdout);
             distribute_work (beg, sizeTree, masterTree);
             nb_tasks = 0;
             beg = sizeTree;
-        //printf("After, %d;%d;%d\n", masterTree[0].pruned,n_moves[0],n_moves[1]);
         //}
     }
 
@@ -265,12 +256,8 @@ void distribute_work (int start, int sizeTree, recTree_t *masterTree) {
         recTree_t *child = &masterTree[metaRecv.index];
         recTree_t *parent = &masterTree[child->parentId];
         int childScore = -child->result->score;
-        //printf("child : %d ; parent : %d\n", metaRecv.index, child->parentId);
 
-        //printf("childScore(%2d of %d):%4d\n",metaRecv.index,child->parentId,
-        //        child->result->score);
         if (childScore > parent->result->score) {
-            //printf("HERE\n");
             parent->result->score = childScore;
             parent->result->best_move = child->move;
             parent->result->pv_length = child->result->pv_length + 1;
@@ -292,7 +279,6 @@ void distribute_work (int start, int sizeTree, recTree_t *masterTree) {
             metaRecv.nodes = 0;
             metaRecv.tree = *masterTree[start].tree;
             metaRecv.result = *masterTree[start].result;
-            // TODO can we use Isend?
             MPI_Send (&metaRecv, 1, *MPI_meta_type, dest,
                     TAG_CONTINUE, MPI_COMM_WORLD);
             start++;
@@ -401,6 +387,7 @@ void decide(int rank, int nb_proc, tree_t * T, result_t *result){
     /* Master executes this */
     if (rank==0) {
         for (int depth = 1;; depth++) {
+        //for (int depth = 3;depth<4; depth++) {
             T->depth = depth;
             T->height = 0;
             T->alpha_start = T->alpha = -MAX_SCORE - 1;
