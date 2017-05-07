@@ -60,7 +60,7 @@
     Une purement MPI (avec la bilbiothèque OpenMPI), une deuxième purement OpenMP,
     et une troisième utilisant un mélange des deux.
     Le travail a été découpé en deux blocs distincts, tout d'abord la parallélisation
-    du code \og naïf\fg. Puis L'extension de la parallélisation à une approche plus
+    du code \og naïf\fg. Puis l'extension de la parallélisation à une approche plus
     intelligente du problème, qui utilise \og l'élagage alpha-bêta\fg.
     Les résultats des implémentations pour chaque bloc sont analysés et comparés ici.
 \end{abstract}
@@ -69,14 +69,14 @@
 %	SECTION 1
 %----------------------------------------------------------------------------------------
 
-\section{Introduction}
+\section*{Introduction}
 Nous considérons ici une version simplifiée du jeu d'échecs, dans laquelle on n'utilise
 que les pions et rois. Nous nous sommes vus fournir le code séquentiel du solveur.
-Celui-ci présente deux paramètres d'optimisations, dont l'activation rend le code
+Celui-ci présente deux paramètres d'optimisation, dont l'activation rend le code
 plus dur à paralléliser. Le premier paramètre est l'utilisation de l'algorithme négamax avec un
 arbre alpha-bêta, et le second l'utilisation d'une table de transposition. Nous n'avons
 pas traité le second paramètre d'optimisation. Le programme prend en entrée un état du
-plateau en notation Fosryth-Edwards. Il cherche ensuite tous les coups possibles jusqu'à
+plateau en notation Forsyth-Edwards. Il cherche ensuite tous les coups possibles jusqu'à
 un nombre de coups donné. Il joue tous les coups, et analyse quel est le meilleur choix
 possible pour chaque joueur à chaque coup. Si il ne parvient pas à trouver une fin à la
 partie, il réitère en jouant un coup supplémentaire jusqu'à trouver une issue à la partie.
@@ -111,7 +111,7 @@ une solution à la profondeur 11 au lieu de 16. Lien vers le solveur : \href{htt
     répartition de charge dynamique avec un modèle maître-esclaves.
     Afin de ne pas subir un potentiel déséquilibre entre les différentes
     tâches, le maître prépare environ 10 fois plus de tâches qu'il n'y a
-    de processus esclaves. Pour cela, il effectue un parcours en largeur
+    de processus esclave. Pour cela, il effectue un parcours en largeur
     jusqu'à arriver à une profondeur à laquelle le nombre de branches vérifie le
     critère précédent. Nous nous appuyons sur une structure C, permettant de
     "remonter l'arbre" d'un noeud vers ses parents. La structure permet
@@ -165,6 +165,29 @@ une solution à la profondeur 11 au lieu de 16. Lien vers le solveur : \href{htt
     %\par {\color{red}parler meta struct?
     %+ avancée par rapport à la premiere deadline?}
     \subsection{OMP}
+    La première approche que nous avons considérée pour openMP consistait à utiliser
+    un \texttt{\# pragma omp parallel for} sur la boucle principale de \texttt{evaluate}.
+    Bien que cette approche ait permis une réduction du temsp de calcul, son efficacité
+    n'était pas bonne.\\
+    Nous avons donc cherché à utiliser les taùches de OMP afin d'améliorer l'éfficacité.
+    Le code a paralléliser est le contenu de cette boucle \texttt{for}. Nous avons
+    encapsulé l'appel a \texttt{play\_move} et l'appel récursif à \texttt{evaluate}
+    dans une tâche OMP. La partie du code executée quand un n\oe ud a un meilleur
+    score que son père avait initialement été mis dans cette tâche, et protégé par
+    une zone critique. Cependant, nous avons finalement choisi de l'en sortir pour 
+    limiter l'utilisation de sémaphore. \'A la place, les scores des enfants sont stockés
+    dans un tableau, pour lequel on cherche ensuite le meilleur score. Cette technique
+    permet d'éviter de multiples comparaisons avec le score du parent.\\
+    \par Un point important, et qui fut pour nous source d'erreur, est que le premier
+    appel à \texttt{evaluate} doit être fait dans une zone parallèle OMP (afin que plusieurs
+    threads soient créés), mais doit également être protégé par \texttt{\# pragma omp single}
+    afin d'éviter de lancer le calcul plusieurs fois.\\
+    \par Nottons de plus que nous devons limiter le nombre de tâches OMP créées, si 
+    on ne veut pas voir les performances réduites. Ce problème a été résolu en mettant
+    une condition sur la création des tâches OMP, liée à la profondeur de récursion
+    (et donc au nombre de tâches déjà créées). Les résultats liés à cette méthode
+    sont très variables en fonction de la profondeur maximum autorisée pour la création
+    de tâches supplémentaires, et du nombre de threads OMP.
     \subsection{OMP + MPI}
     Cette implémentation reprend simplement 
     les principes des deux premières. Un processus maître prépare des tâches
@@ -201,6 +224,7 @@ une solution à la profondeur 11 au lieu de 16. Lien vers le solveur : \href{htt
         \caption{\label{tab:omp1}\color{red} résultats}
     \end{center} \end{table}
     \subsection{Analyse et comparaison}
+    On note que
 
 \section{Parallélisation avec alpha-bêta}
     \subsection{MPI}
@@ -224,13 +248,13 @@ une solution à la profondeur 11 au lieu de 16. Lien vers le solveur : \href{htt
     de coups est souvent limité (autour de 5-6). Or chaque coup est joué sur un
     processus MPI, donc un grand nombre de processus ne bénéficie pas du tout
     à cet algorithme.
-        \item De plus, sur une profondeur importante (>14),
+        \item De plus, pour une profondeur importante (>14),
     en arrivant sur le haut de l'arbre, si les branches de droite n'ont pas
     été élaguées, leur calcul se révèle quasiment aussi long que le calcul
-    initial séquentiel. 
+    séquentiel initial. 
     \end{enumerate}
     Plusieurs solutions ont été envisagées pour résoudre ces problèmes.
-    D'une part il a été envisagé d'utiliser comme pour la parallélisation
+    D'une part il a été envisagé d'utiliser, comme pour la parallélisation
     naïve, une liste de tâches à faire, et de ne lancer la parallélisation
     qu'après que cette liste ait atteint une taille suffisamment importante
     (de l'ordre de 10 fois le nombre de processus).
