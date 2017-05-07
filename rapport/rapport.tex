@@ -31,8 +31,12 @@
 
 \usepackage{color}
 \usepackage[top=1in, bottom=1.25in, left=1.25in, right=1.25in]{geometry}
+\usepackage{multirow}
+\usepackage{rotating}
+\usepackage[colorlinks=true,urlcolor=blue]{hyperref}
 
 %\renewcommand{\labelenumi}{\alph{enumi}.} % Make numbering in the enumerate environment by letter rather than number (e.g. section 6)
+\renewcommand{\thefootnote}{\fnsymbol{footnote}}
 
 %\usepackage{times} % Uncomment to use the Times New Roman font
 
@@ -52,12 +56,12 @@
 
 \begin{abstract}
     Ce rapport présente la démarche suivie pour paralléliser un code de solveur d'échecs.
-    Trois types d'implémentations ont été réalisées.
+    Trois types d'implémentation ont été réalisées.
     Une purement MPI (avec la bilbiothèque OpenMPI), une deuxième purement OpenMP,
     et une troisième utilisant un mélange des deux.
-    Le travail a été découpé en deux blocs distincts, tout d'abord la paralélisation
-    du code \og naïf\fg. Puis L'extension de la paralélisation à une approche plus
-    intelligente du problème qui utilise \og l'élagage alpha-bêta\fg.
+    Le travail a été découpé en deux blocs distincts, tout d'abord la parallélisation
+    du code \og naïf\fg. Puis L'extension de la parallélisation à une approche plus
+    intelligente du problème, qui utilise \og l'élagage alpha-bêta\fg.
     Les résultats des implémentations pour chaque bloc sont analysés et comparés ici.
 \end{abstract}
 
@@ -68,13 +72,13 @@
 \section{Introduction}
 Nous considérons ici une version simplifiée du jeu d'échecs, dans laquelle on n'utilise
 que les pions et rois. Nous nous sommes vus fournir le code séquentiel du solveur.
-Celui-ci présentait deux paramètres d'optimisations, dont l'activation rendait le code
-plus dur à paralléliser. Le premier était l'utilisation de l'algorithme négamax avec un
+Celui-ci présente deux paramètres d'optimisations, dont l'activation rend le code
+plus dur à paralléliser. Le premier paramètre est l'utilisation de l'algorithme négamax avec un
 arbre alpha-bêta, et le second l'utilisation d'une table de transposition. Nous n'avons
 pas traité le second paramètre d'optimisation. Le programme prend en entrée un état du
 plateau en notation Fosryth-Edwards. Il cherche ensuite tous les coups possibles jusqu'à
 un nombre de coups donné. Il joue tous les coups, et analyse quel est le meilleur choix
-possible pour chaque joueur à chaque coups. Si il ne parvient pas à trouver une fin à la
+possible pour chaque joueur à chaque coup. Si il ne parvient pas à trouver une fin à la
 partie, il réitère en jouant un coup supplémentaire jusqu'à trouver une issue à la partie.
 \par Les performances du programme séquentiel sont données dans la table \ref{tab:seq}.
 Ces valeurs serviront d'étalon pour mesurer les performances des parallélisations.
@@ -83,11 +87,11 @@ Ces valeurs serviront d'étalon pour mesurer les performances des parallélisati
     \hline 
     \textbf{Optimisation}  & \textbf{Machine(s)}        & \textbf{Entrée}   & \textbf{Temps}    &   \textbf{N\oe uds cherchés}\\ \hline
     \og Naïf \fg    &   14-15-401-05    &   "7K//k1P/7p b"          &   26min21     &   6~287~824~726\\ \hline
-    \og Naïf \fg    &   gpu-3           &   "7K//k1P/7p b"          &   40min40     &   6~287~824~726\\ \hline
-    Alpha-bêta      &   14-15-401-05    &   "/5p/4p/4P/4KP///k w"   &   13min19     &   3~622~607~245             \\ \hline
-    Alpha-bêta      &   gpu-3           &   "/5p/4p/4P/4KP///k w"   &   20min25     &   3~622~607~245 \\ \hline
+    \og Naïf \fg    &   gpu-3           &   "/ppp//PPP//7k//7K w"   &   1m58        &   258~991~723\\ \hline
+        Alpha-bêta      &   14-15-401-05    &   "/5p/4p/4P/4KP///k w"\footnotemark[1]   &   13min19     &   3~622~607~245             \\ \hline
+        %Alpha-bêta      &   gpu-3           &   "/5p/4p/4P/4KP///k w"\footnotemark[1]   &   20min25     &   3~622~607~245 \\ \hline
     \end{tabular} 
-    \caption{\label{tab:seq}Temps d'éxecution du programme séquentiel pour différents paramètres.}
+    \caption{\label{tab:seq}Temps d'exécution du programme séquentiel pour différents paramètres.}
 \end{center} \end{table}
 \'Etant donné les temps d'exécution de ces instances, les temps d'exécution n'ont été mesurés
 qu'une seule fois, et en conséquence, sont sujets à une incertitude de mesure liée à
@@ -95,38 +99,41 @@ la possible utilisation des machines par d'autre utilisateurs pendant la mesure.
 Néanmoins, on observe qu'ils semblent en accord avec les valeurs prévues dans les les 
 fichiers \texttt{positions\_v1.txt} et \texttt{positions\_v2.txt} pour les tests sur 
 \textsc{14-15-401-05}. Il est normal que les exécutions soient plus lentes sur gpu-3 puisque
-les processeurs sont moint puissant individuellement que ceux des autres salles.
+les processeurs de cette machine sont moint puissants individuellement que ceux des autres salles.
+
+\footnotetext[1]{Il est à noter que sur un solveur en ligne utilisant GNUChess 6.2.4, nous avons
+une solution à la profondeur 11 au lieu de 16. Lien vers le solveur : \href{https://nextchessmove.com/}{nextchessmove}}
 
 
 \section{Parallélisation du code naïf}
     \subsection{MPI}
     Pour cette implémentation, nous avons fait le choix d'utiliser une 
-    répartition de charge dynamique avec un modèle maître-esclave.
+    répartition de charge dynamique avec un modèle maître-esclaves.
     Afin de ne pas subir un potentiel déséquilibre entre les différentes
     tâches, le maître prépare environ 10 fois plus de tâches qu'il n'y a
     de processus esclaves. Pour cela, il effectue un parcours en largeur
-    jusqu'à arriver à une profondeur dont le nombre de branches vérifie le
+    jusqu'à arriver à une profondeur à laquelle le nombre de branches vérifie le
     critère précédent. Nous nous appuyons sur une structure C, permettant de
     "remonter l'arbre" d'un noeud vers ses parents. La structure permet
     également d'accéder aux structures \texttt{tree\_t} et \texttt{result\_t}
-    d'un noeud, pré-existante dans le code séquentiel.
+    d'un noeud, pré-éxistantes dans le code séquentiel.
     Ainsi, avec un tableau de cette structure que nous avons créée, le 
     processus maître maintient une liste des noeuds du haut de l'arbre,
     qu'il utilise ensuite pour distribuer le travail aux processus esclaves.\\
     \begin{figure}[t] \begin{center}
         \includegraphics[scale=0.33]{figures/time}
         \caption{\label{fig:time}Illustration du fonctionnement du programme
-        avec 4 processus. Le maître pré-calcul les tâches a distribuer,
+        avec 4 processus. Le maître pré-calcule les tâches a distribuer,
         puis les communique aux esclaves. Les esclaves travaillent sur les
         tâches qui leurs sont attribuées avant de les renvoyer au maître.
         Enfin, le maître recombine les résultats ensemble. L'échelle de temps 
         n'est pas respectée.}
     \end{center} \end{figure}
-    \par Une fois que le maître a trouvé suffisemment de tâches, commence la
+    \par Une fois que le maître a trouvé suffisamment de tâches, commence la
     répartition des tâches. Il envoie à chacun des processus esclaves, un
     couple de structures \texttt{tree\_t/result\_t} pour que celui-ci puisse
     appeler \texttt{evaluate}. Une fois sa tâche finie, un processus esclave 
-    renvoie son résultat au processus 0, qui a son tour lui renvoie une
+    renvoie son résultat au processus 0, qui à son tour lui renvoie une
     nouvelle tâche à effectuer. Lorsqu'il n'y a plus de tâches à une profondeur
     donnée, les esclaves se bloquent et se mettent en attente. Le maître
     recombine alors les données des esclaves. Ce déroulement est illustré par
@@ -153,7 +160,7 @@ les processeurs sont moint puissant individuellement que ceux des autres salles.
     On peut donc considérer que l'efficacité parallèle réelle est de $9.34/11 = 84,9\%$, 
     et c'est vers cette valeur que devrait tendre l'efficacité si on augmentait
     le nombre de processus (en supposant que notre solution soit toujours
-    efficace un nombre important de processus).
+    efficace avec un nombre important de processus).
 
     %\par {\color{red}parler meta struct?
     %+ avancée par rapport à la premiere deadline?}
@@ -165,6 +172,34 @@ les processeurs sont moint puissant individuellement que ceux des autres salles.
     pour paralléliser le calcul de leur tâche, avant de renvoyer le résultat
     au maître.\\
     \par {\color{red} Ajouter les résultats}
+    \begin{table} \begin{center}
+        \begin{sideways} \hspace{-2.4cm}Profondeur maximum \end{sideways}
+        \begin{tabular}{|c|c|c|c|c|c|c|}
+            \multicolumn{2}{c}{} & \multicolumn{5}{c}{Nombre de threads} \\
+            \cline{3-7}
+            \multicolumn{2}{c|}{} & 2 & 4 & 8 & 16 & 32 \\
+            \hline
+            \multirow{3}{*}{2} & Temps          & 1m41 & 1m25 & 1m10 & 1m9  & 1m8 \\
+            \cline{2-7}
+                              & Accelération    & 1.2  & 1.4  & 1.7  & 1.7  & 1.7 \\
+            \cline{2-7}
+                              & Efficacité      & 60\% & 35\% & 21\% & 10\% & 5\% \\
+            \hline \hline
+            \multirow{3}{*}{4} & Temps          & 1m46 & 1m13 & 1m13 & 1m10 & 1m8 \\
+            \cline{2-7}
+                              & Accelération    & 1.1  & 1.6  & 1.6  & 1.7  & 1.7 \\
+            \cline{2-7}
+                              & Efficacité      & 55\% & 40\% & 20\% & 10\% & 5\% \\
+            \hline \hline
+            \multirow{3}{*}{8} & Temps          & 1m10 & 1m20 & 1m13 & 1m15 & 1m30 \\
+            \cline{2-7}
+                              & Accelération    & 1.7  & 1.5  & 1.6  & 1.6  & 1.3  \\
+            \cline{2-7}
+                              & Efficacité      & 85\% & 37\% & 20\% & 10\% & 4\%  \\
+            \hline
+        \end{tabular}
+        \caption{\label{tab:omp1}\color{red} résultats}
+    \end{center} \end{table}
     \subsection{Analyse et comparaison}
 
 \section{Parallélisation avec alpha-bêta}
@@ -172,8 +207,9 @@ les processeurs sont moint puissant individuellement que ceux des autres salles.
     L'approche alpha-bêta propose d'élaguer les branches
     les moins intéressantes au fur et à mesure de la progression de 
     l'algorithme. De plus, une fonction nous permet de trier les coups
-    possibles du plus au moins intéressant. Dès lors, une nouvelle 
-    approche semblait pertinente ; nous avons choisi de faire jouer au
+    possibles du plus au moins intéressant. Dès lors, une autre 
+    approche que celle utilisée dans la prmière partie semble pertinente.
+    Nous avons choisi de faire jouer au
     maître toute la branche la plus à gauche de l'arbre, soit
     probablement les meilleurs coups (d'après une heuristique qui n'est pas 
     exacte). L'algorithme part ensuite de la feuille qu'il a calculé, et
@@ -211,7 +247,8 @@ les processeurs sont moint puissant individuellement que ceux des autres salles.
     la fonction \texttt{alpha} (la fonction du processus maître)
     lorsque l'algorithme était haut dans l'arbre. Nous avons également
     tenté d'implémenter cette solution, sans succès. Une erreur
-    de segmentation survenait de manière irrégulière lors de l'exécution.\\
+    de segmentation survenait de manière irrégulière (ce qui rendait sa correction
+    difficile) lors de l'exécution.\\
     \par Pendant nos tests et tentatives de résolution, afin d'augmenter
     la chance de détecter des problèmes d'exécution non systématique (à
     cause de la parallélisation), nous avons réduit le nombre de processus MPI
